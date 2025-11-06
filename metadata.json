@@ -1,0 +1,5 @@
+{
+  "name": "gaganyan",
+  "description": "An AI-powered chat assistant that helps users find and book flights using natural language. It leverages function calling to interface with a flight data service.",
+  "requestFramePermissions": []
+}
