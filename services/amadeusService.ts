@@ -1,4 +1,8 @@
-import { Flight, Location, Segment } from '../types';
+import { FlightOffer, Location, FlightSegment, Itinerary } from '../types';
+
+export const isAmadeusConfigured = (): boolean => {
+    return !!process.env.AMADEUS_API_KEY && !!process.env.AMADEUS_API_SECRET;
+};
 
 const AMADEUS_BASE_URL = 'https://test.api.amadeus.com';
 
@@ -17,11 +21,11 @@ const getAuthToken = async (): Promise<string> => {
     return authToken.token;
   }
 
-  const AMADEUS_API_KEY = process.env.AMADEUS_API_KEY || sessionStorage.getItem('AMADEUS_API_KEY');
-  const AMADEUS_API_SECRET = process.env.AMADEUS_API_SECRET || sessionStorage.getItem('AMADEUS_API_SECRET');
+  const AMADEUS_API_KEY = process.env.AMADEUS_API_KEY;
+  const AMADEUS_API_SECRET = process.env.AMADEUS_API_SECRET;
   
   if (!AMADEUS_API_KEY || !AMADEUS_API_SECRET) {
-    throw new Error("Amadeus API credentials are not configured. Please provide them on the start page.");
+    throw new Error("Amadeus API credentials are not configured in environment variables (AMADEUS_API_KEY, AMADEUS_API_SECRET).");
   }
 
   console.log('Fetching new Amadeus auth token...');
@@ -35,11 +39,9 @@ const getAuthToken = async (): Promise<string> => {
     });
 
     if (!response.ok) {
-      sessionStorage.removeItem('AMADEUS_API_KEY');
-      sessionStorage.removeItem('AMADEUS_API_SECRET');
       const errorData = await response.json();
       console.error('Failed to fetch Amadeus token:', errorData);
-      throw new Error(`Amadeus authentication failed. Please check your credentials and try again. Status: ${response.status}`);
+      throw new Error(`Amadeus authentication failed. Please check your environment variables. Status: ${response.status}`);
     }
 
     const data = await response.json();
@@ -53,8 +55,6 @@ const getAuthToken = async (): Promise<string> => {
     return authToken.token;
   } catch (error) {
     console.error('Error in getAuthToken:', error);
-    // Reloading the page will show the credentials form again.
-    window.location.reload(); 
     throw error;
   }
 };
@@ -117,9 +117,10 @@ export const searchFlights = async (
   departureDate: string,
   adults: number,
   children: number,
-): Promise<Flight[]> => {
+  returnDate?: string
+): Promise<FlightOffer[]> => {
   console.log(
-    `Searching for flights from ${origin} to ${destination} on ${departureDate} for ${adults} adults and ${children} children.`
+    `Searching for flights from ${origin} to ${destination} on ${departureDate} ${returnDate ? `returning on ${returnDate}`: ''} for ${adults} adults and ${children} children.`
   );
   
   try {
@@ -130,11 +131,14 @@ export const searchFlights = async (
       departureDate: departureDate,
       adults: adults.toString(),
       currencyCode: 'USD',
-      max: '10', // Get up to 10 flight offers
+      max: '10',
     });
     
     if (children > 0) {
       params.append('children', children.toString());
+    }
+    if (returnDate) {
+        params.append('returnDate', returnDate);
     }
 
     const response = await fetch(`${AMADEUS_BASE_URL}/v2/shopping/flight-offers?${params.toString()}`, {
@@ -154,52 +158,54 @@ export const searchFlights = async (
       return [];
     }
     
-    const flights: Flight[] = data.data.map((offer: any): Flight => {
-      const firstItinerary = offer.itineraries[0];
-      const firstSegment = firstItinerary.segments[0];
-      const lastSegment = firstItinerary.segments[firstItinerary.segments.length - 1];
+    const flightOffers: FlightOffer[] = data.data.map((offer: any): FlightOffer => {
+      const itineraries: Itinerary[] = offer.itineraries.map((itinerary: any): Itinerary => {
+        const firstSegment = itinerary.segments[0];
+        const lastSegment = itinerary.segments[itinerary.segments.length - 1];
 
-      const segments: Segment[] = firstItinerary.segments.map((segment: any) => {
-        const carrier = data.dictionaries.carriers[segment.carrierCode] || segment.carrierCode;
+        const segments: FlightSegment[] = itinerary.segments.map((segment: any): FlightSegment => {
+          const carrier = data.dictionaries.carriers[segment.carrierCode] || segment.carrierCode;
+          return {
+            origin: {
+              code: segment.departure.iataCode,
+              time: new Date(segment.departure.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+            },
+            destination: {
+              code: segment.arrival.iataCode,
+              time: new Date(segment.arrival.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+            },
+            duration: formatISODuration(segment.duration),
+            airline: carrier,
+            flightNumber: `${segment.carrierCode}${segment.number}`,
+          };
+        });
+
         return {
+          duration: formatISODuration(itinerary.duration),
+          stops: itinerary.segments.length - 1,
+          segments,
           origin: {
-            code: segment.departure.iataCode,
-            time: new Date(segment.departure.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+            code: firstSegment.departure.iataCode,
+            time: new Date(firstSegment.departure.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
           },
           destination: {
-            code: segment.arrival.iataCode,
-            time: new Date(segment.arrival.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+            code: lastSegment.arrival.iataCode,
+            time: new Date(lastSegment.arrival.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
           },
-          duration: formatISODuration(segment.duration),
-          airline: carrier,
-          flightNumber: `${segment.carrierCode}${segment.number}`,
         };
       });
 
       return {
         id: offer.id,
-        airline: data.dictionaries.carriers[firstSegment.carrierCode] || firstSegment.carrierCode,
-        flightNumber: `${firstSegment.carrierCode}${firstSegment.number}`,
-        origin: {
-          code: firstSegment.departure.iataCode,
-          city: '',
-          time: new Date(firstSegment.departure.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-        },
-        destination: {
-          code: lastSegment.arrival.iataCode,
-          city: '',
-          time: new Date(lastSegment.arrival.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
-        },
-        duration: formatISODuration(firstItinerary.duration),
         price: parseFloat(offer.price.total),
-        stops: firstItinerary.segments.length - 1,
-        segments: segments,
-        bookingUrl: `https://www.google.com/flights?q=${origin}-${destination}-${departureDate}&pax=${adults},${children},0`,
+        itineraries,
+        airline: data.dictionaries.carriers[offer.itineraries[0].segments[0].carrierCode] || offer.itineraries[0].segments[0].carrierCode,
+        bookingUrl: `https://www.google.com/flights?q=${origin}-${destination}-${departureDate}${returnDate ? `*${destination}-${origin}-${returnDate}` : ''}&pax=${adults},${children},0`,
       };
     });
 
-    console.log(`Found ${flights.length} flights.`);
-    return flights;
+    console.log(`Found ${flightOffers.length} flight offers.`);
+    return flightOffers;
   } catch (error) {
     console.error(`Error in searchFlights:`, error);
     return []; // Return empty array on error

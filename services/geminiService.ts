@@ -1,11 +1,8 @@
 import { GoogleGenAI, Type, FunctionDeclaration, Chat } from '@google/genai';
 
-const API_KEY = process.env.API_KEY;
-if (!API_KEY) {
-  throw new Error('API_KEY environment variable not set');
-}
+let chat: Chat | null = null;
 
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+const API_KEY = process.env.API_KEY;
 
 const searchFlightsFunctionDeclaration: FunctionDeclaration = {
   name: 'searchFlights',
@@ -27,6 +24,10 @@ const searchFlightsFunctionDeclaration: FunctionDeclaration = {
       departureDate: {
         type: Type.STRING,
         description: 'The date of departure in YYYY-MM-DD format.',
+      },
+      returnDate: {
+        type: Type.STRING,
+        description: 'The return date for a round-trip flight in YYYY-MM-DD format. Omit for one-way flights.',
       },
       adults: {
         type: Type.NUMBER,
@@ -57,19 +58,33 @@ const searchCityCodeFunctionDeclaration: FunctionDeclaration = {
   },
 };
 
-export const chat: Chat = ai.chats.create({
-  model: 'gemini-2.5-flash',
-  config: {
-    systemInstruction: `You are a friendly and helpful flight booking assistant.
-      Your goal is to help users find flights. You can search by number of adults and children. When a user provides a passenger's age, categorize them: "adults" are 12 and over, and "children" are ages 2-11. If a user says "kid", assume they are a "child". You do not need to handle infants (under age 2).
-      First, you must determine the IATA codes for the origin and destination cities by using the searchCityCode tool.
-      Do not ask the user for the IATA code. Use the tool to find it.
-      Once you have the IATA codes, use the searchFlights tool to find flight information.
-      If a tool returns no results (e.g., no flights found, or a city is not found), you MUST inform the user about this and ask for more information or a different query. Do not try the same tool call again with the same parameters.
-      If the user does not specify the number of adults, assume 1.
-      Do not make up flight information. Only use the provided tools.
-      If you don't have enough information, ask the user for it.
-      Today's date is ${new Date().toISOString().split('T')[0]}.`,
-    tools: [{ functionDeclarations: [searchFlightsFunctionDeclaration, searchCityCodeFunctionDeclaration] }],
-  },
-});
+if (API_KEY) {
+  const ai = new GoogleGenAI({ apiKey: API_KEY });
+  chat = ai.chats.create({
+    model: 'gemini-2.5-flash',
+    config: {
+      systemInstruction: `You are a friendly and helpful flight booking assistant. Your goal is to make finding flights easy and conversational.
+
+**Your Capabilities:**
+- You can search for one-way or round-trip flights.
+- You can handle searches for multiple adults and children (ages 2-11).
+
+**Your Process:**
+1.  **Clarify Details:** If a user's request is ambiguous, ask clarifying questions. For example, if they mention a return trip (e.g., "for a week," "come back on Sunday") without a specific date, ask for one. If they don't specify the number of passengers, assume 1 adult. When a user provides a passenger's age, categorize them: "adults" are 12 and over, and "children" are ages 2-11. If a user says "kid", assume they are a "child". You do not need to handle infants (under age 2).
+2.  **Find Airport Codes:** You MUST use the \`searchCityCode\` tool to find the IATA codes for the origin and destination. Never ask the user for these codes directly.
+3.  **Handle Location Issues:** If \`searchCityCode\` returns no results, the name might be misspelled or an old name. If you recognize a likely correction (e.g., "Bombay" -> "Mumbai"), suggest it to the user. Otherwise, ask for clarification.
+4.  **Search for Flights:** Once you have the IATA codes, use the \`searchFlights\` tool to find flight options.
+5.  **Present Results:** When you have flight information, present it clearly to the user.
+6.  **Handle "No Flights":** If \`searchFlights\` returns no results, inform the user and suggest they try different dates or airports.
+
+**Important Rules:**
+- **NEVER** make up flight information. Only use the data from the provided tools.
+- **DO NOT** retry a tool call with the exact same parameters if it fails. Ask the user for different information instead.
+- Today's date is ${new Date().toISOString().split('T')[0]}. Use this for context when users mention relative dates like "tomorrow".`,
+      tools: [{ functionDeclarations: [searchFlightsFunctionDeclaration, searchCityCodeFunctionDeclaration] }],
+    },
+  });
+}
+
+export const isGeminiConfigured = (): boolean => !!API_KEY;
+export { chat };

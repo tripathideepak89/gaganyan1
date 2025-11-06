@@ -4,7 +4,7 @@ export enum MessageRole {
   SYSTEM = 'system',
 }
 
-export interface Segment {
+export interface FlightSegment {
   origin: {
     code: string;
     time: string;
@@ -18,27 +18,29 @@ export interface Segment {
   flightNumber: string;
 }
 
-export interface Flight {
-  id: string;
-  airline: string;
-  flightNumber: string;
-  origin: {
-    code: string;
-    city: string;
-    time: string;
-  };
-  destination: {
-    code: string;
-    city: string;
-    time: string;
-  };
+export interface Itinerary {
   duration: string;
-  price: number;
   stops: number;
-  segments: Segment[];
+  segments: FlightSegment[];
+  origin: { 
+    code: string; 
+    time: string; 
+  };
+  destination: { 
+    code: string; 
+    time: string; 
+  };
+}
+
+export interface FlightOffer {
+  id: string;
+  price: number;
+  itineraries: Itinerary[];
   bookingUrl: string;
   score?: number;
+  airline: string; // Airline of the first segment for display purposes
 }
+
 
 export interface Location {
   name: string;
@@ -50,5 +52,5 @@ export interface Location {
 export interface ChatMessage {
   id: string;
   role: MessageRole;
-  content: string | Flight[] | Location[];
+  content: string | FlightOffer[] | Location[];
 }
