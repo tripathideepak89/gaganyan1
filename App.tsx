@@ -275,7 +275,16 @@ const App: React.FC = () => {
 
     } catch (error) {
       console.error('Error sending message:', error);
-      const errorMessageText = error instanceof Error ? error.message : 'Sorry, something went wrong. Please check the console for details.';
+      let errorMessageText = 'Sorry, something went wrong. Please try again later.';
+  
+      const messageToCheck = error instanceof Error ? error.message : JSON.stringify(error);
+
+      if (messageToCheck.includes('API key expired') || messageToCheck.includes('API_KEY_INVALID')) {
+        errorMessageText = "It looks like there's a configuration issue with the AI service. The API key may be expired or invalid. Please contact the administrator to resolve this.";
+      } else if (error instanceof Error) {
+        errorMessageText = `An unexpected error occurred: ${error.message}`;
+      }
+      
       const errorMessage: ChatMessage = { id: Date.now().toString() + '-error', role: MessageRole.MODEL, content: errorMessageText };
       setMessages((prevMessages) => [...prevMessages, errorMessage]);
     } finally {
