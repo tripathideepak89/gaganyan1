@@ -1,8 +1,8 @@
 import { GoogleGenAI, Type, FunctionDeclaration, Chat } from '@google/genai';
 
-const API_KEY = process.env.GEMINI_API_KEY;
+const API_KEY = process.env.API_KEY;
 if (!API_KEY) {
-  throw new Error('API_KEY environment variable not set');
+  throw new Error('API_KEY environment variable for Google GenAI is not set.');
 }
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
