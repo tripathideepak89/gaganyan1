@@ -1,4 +1,3 @@
-
 import React from 'react';
 
 export const PaperAirplaneIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -54,4 +53,68 @@ export const ArrowRightIcon: React.FC<{ className?: string }> = ({ className }) 
       clipRule="evenodd"
     />
   </svg>
+);
+
+export const BuildingOfficeIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    className={className}
+  >
+    <path
+      fillRule="evenodd"
+      d="M4.5 2.25a.75.75 0 000 1.5v16.5a.75.75 0 00.75.75h13.5a.75.75 0 00.75-.75V3.75a.75.75 0 000-1.5h-15zM9 6a.75.75 0 000 1.5h.75a.75.75 0 000-1.5H9zm-.75 3.75A.75.75 0 019 9h.75a.75.75 0 010 1.5H9a.75.75 0 01-.75-.75zM9 12a.75.75 0 000 1.5h.75a.75.75 0 000-1.5H9zm-.75 3.75a.75.75 0 01.75-.75h.75a.75.75 0 010 1.5H9a.75.75 0 01-.75-.75zM13.5 6a.75.75 0 000 1.5h.75a.75.75 0 000-1.5h-.75zm-.75 3.75a.75.75 0 01.75-.75h.75a.75.75 0 010 1.5h-.75a.75.75 0 01-.75-.75zM13.5 12a.75.75 0 000 1.5h.75a.75.75 0 000-1.5h-.75zm-.75 3.75a.75.75 0 01.75-.75h.75a.75.75 0 010 1.5h-.75a.75.75 0 01-.75-.75z"
+      clipRule="evenodd"
+    />
+    <path d="M2.25 21a.75.75 0 00.75.75h18a.75.75 0 00.75-.75V18a.75.75 0 00-.75-.75H3a.75.75 0 00-.75.75v3z" />
+  </svg>
+);
+
+export const StarIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    className={className}
+  >
+    <path
+      fillRule="evenodd"
+      d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.007 5.404.433c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.433 2.082-5.007z"
+      clipRule="evenodd"
+    />
+  </svg>
+);
+
+export const ChatBubbleLeftRightIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
+        <path fillRule="evenodd" d="M4.804 21.644A6.707 6.707 0 006 21.75a6.75 6.75 0 006.75-6.75v-2.506a5.25 5.25 0 01-4.342-5.022 5.25 5.25 0 0110.193.66a1.125 1.125 0 002.094.418 7.5 7.5 0 00-14.13-.941 7.5 7.5 0 00-1.26 13.181 6.707 6.707 0 00.558.261zM17.25 12.75a.75.75 0 000 1.5h.75a4.5 4.5 0 014.5 4.5v.106a2.25 2.25 0 01-1.723 2.193 2.25 2.25 0 01-2.428-1.718 4.48 4.48 0 00-.095-.429 4.5 4.5 0 00-4.5-4.5h-.75a.75.75 0 000-1.5h.75a6 6 0 016 6v.059a3.75 3.75 0 003.352 3.658 3.75 3.75 0 004.148-3.342v-.106a6 6 0 00-6-6h-.75z" clipRule="evenodd" />
+    </svg>
+);
+
+export const TravelBilliLogo: React.FC<{ className?: string }> = ({ className }) => (
+    <svg 
+        xmlns="http://www.w3.org/2000/svg" 
+        viewBox="-10 -15 120 135" 
+        className={className}
+        aria-label="TravelBilli Logo"
+    >
+        <g stroke="currentColor" strokeWidth="4" fill="none" strokeLinecap="round" strokeLinejoin="round">
+            {/* Cat Head */}
+            <path d="M90 40 C90 70, 70 90, 50 90 C30 90, 10 70, 10 40 C10 10, 30 -10, 50 -10 C70 -10, 90 10, 90 40 Z" fill="currentColor" fillOpacity="0.1" />
+            {/* Ears */}
+            <path d="M20,0 L10,10" />
+            <path d="M80,0 L90,10" />
+            
+            {/* Sunglasses */}
+            <circle cx="35" cy="35" r="12" fill="currentColor" />
+            <circle cx="65" cy="35" r="12" fill="currentColor" />
+            <line x1="47" y1="35" x2="53" y2="35" stroke="currentColor" strokeWidth="3" />
+
+            {/* Skateboard */}
+            <path d="M 5 95 C 0 95, 0 100, 5 100 L 95 100 C 100 100, 100 95, 95 95 Z" fill="currentColor" />
+            <circle cx="25" cy="105" r="5" fill="currentColor" />
+            <circle cx="75" cy="105" r="5" fill="currentColor" />
+        </g>
+    </svg>
 );

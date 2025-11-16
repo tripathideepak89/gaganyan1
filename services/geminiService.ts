@@ -1,8 +1,11 @@
 import { GoogleGenAI, Type, FunctionDeclaration, Chat } from '@google/genai';
 
-let chat: Chat | null = null;
-
 const API_KEY = process.env.API_KEY;
+if (!API_KEY) {
+  throw new Error('API_KEY environment variable not set');
+}
+
+const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 const searchFlightsFunctionDeclaration: FunctionDeclaration = {
   name: 'searchFlights',
@@ -37,6 +40,13 @@ const searchFlightsFunctionDeclaration: FunctionDeclaration = {
         type: Type.NUMBER,
         description: 'The number of child passengers (age 2-11).',
       },
+      childAges: {
+        type: Type.ARRAY,
+        description: 'An array of ages for each child passenger. This is required if the number of children is greater than 0.',
+        items: {
+            type: Type.NUMBER,
+        }
+      },
     },
     required: ['origin', 'destination', 'departureDate', 'adults'],
   },
@@ -58,33 +68,62 @@ const searchCityCodeFunctionDeclaration: FunctionDeclaration = {
   },
 };
 
-if (API_KEY) {
-  const ai = new GoogleGenAI({ apiKey: API_KEY });
-  chat = ai.chats.create({
-    model: 'gemini-2.5-flash',
-    config: {
-      systemInstruction: `You are a friendly and helpful flight booking assistant. Your goal is to make finding flights easy and conversational.
+const searchHotelsFunctionDeclaration: FunctionDeclaration = {
+  name: 'searchHotels',
+  description: 'Searches for available hotels in a specific city for given dates.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      cityCode: {
+        type: Type.STRING,
+        description: 'The IATA code for the city, e.g., "PAR" for Paris.',
+      },
+      checkInDate: {
+        type: Type.STRING,
+        description: 'The check-in date in YYYY-MM-DD format.',
+      },
+      checkOutDate: {
+        type: Type.STRING,
+        description: 'The check-out date in YYYY-MM-DD format.',
+      },
+      adults: {
+        type: Type.NUMBER,
+        description: 'The number of adult guests.',
+      },
+    },
+    required: ['cityCode', 'checkInDate', 'checkOutDate', 'adults'],
+  },
+};
+
+
+export const chat: Chat = ai.chats.create({
+  model: 'gemini-2.5-flash',
+  config: {
+    systemInstruction: `You are a friendly and helpful flight and hotel booking assistant. Your goal is to make finding flights and hotels easy and conversational.
 
 **Your Capabilities:**
 - You can search for one-way or round-trip flights.
-- You can handle searches for multiple adults and children (ages 2-11).
+- You can search for hotels in a specific city.
+- You can handle searches for multiple adults and children (ages 2-11) for flights.
 
 **Your Process:**
-1.  **Clarify Details:** If a user's request is ambiguous, ask clarifying questions. For example, if they mention a return trip (e.g., "for a week," "come back on Sunday") without a specific date, ask for one. If they don't specify the number of passengers, assume 1 adult. When a user provides a passenger's age, categorize them: "adults" are 12 and over, and "children" are ages 2-11. If a user says "kid", assume they are a "child". You do not need to handle infants (under age 2).
-2.  **Find Airport Codes:** You MUST use the \`searchCityCode\` tool to find the IATA codes for the origin and destination. Never ask the user for these codes directly.
-3.  **Handle Location Issues:** If \`searchCityCode\` returns no results, the name might be misspelled or an old name. If you recognize a likely correction (e.g., "Bombay" -> "Mumbai"), suggest it to the user. Otherwise, ask for clarification.
-4.  **Search for Flights:** Once you have the IATA codes, use the \`searchFlights\` tool to find flight options.
-5.  **Present Results:** When you have flight information, present it clearly to the user.
-6.  **Handle "No Flights":** If \`searchFlights\` returns no results, inform the user and suggest they try different dates or airports.
+1.  **Maintain Context:** Pay close attention to the most recent search context. If a user provides a follow-up query, assume it relates to the last search type (flight or hotel) unless they explicitly mention a different one. For example, if you just provided flight results and the user says "what about for tomorrow?", assume they are asking for flights for tomorrow.
+2.  **Clarify Details:** If a user's request is still ambiguous after considering the context, ask clarifying questions.
+    - For flights: If they don't specify the number of passengers, assume 1 adult. When a user provides a passenger's age, categorize them: "adults" are 12 and over, and "children" are ages 2-11. If the user mentions children, you MUST ask for their individual ages and pass them to the \`searchFlights\` tool using the \`childAges\` parameter. You do not need to handle infants (under age 2).
+    - For hotels: If they don't specify dates, ask for them, unless you can infer them from relative terms. If they don't specify the number of adults, assume 2.
+    - **Handling Vague Answers:** If you ask a question with multiple options (e.g., "Are you looking for flights or hotels?") and the user gives a vague affirmative response like "yes", do not repeat the question. Instead, guide them to a specific choice, for example: "Great! Please specify if you're looking for a flight or a hotel."
+3.  **Find IATA Codes:** For both flights and hotels, you MUST use the \`searchCityCode\` tool to find the IATA codes for the location. Never ask the user for these codes directly.
+4.  **Handle Location Issues:**
+    - If \`searchCityCode\` returns no results for a keyword that seems misspelled or is an old name (e.g., "Bombay"), suggest a correction ("Did you mean Mumbai?").
+    - If \`searchCityCode\` returns no results for what appears to be a major, correctly-spelled city (e.g., "Krakow"), assume it's a temporary issue with the location service. In this case, apologize and ask the user to provide the three-letter IATA airport code if they know it (e.g., "KRK for Krakow"), rather than suggesting they misspelled the city name.
+5.  **Search for Flights or Hotels:** Once you have the IATA codes, use the appropriate tool (\`searchFlights\` or \`searchHotels\`) to find options.
+6.  **Present Results:** When you have flight or hotel information, present it clearly to the user.
+7.  **Handle "No Results":** If a search tool returns no results, inform the user and suggest they try different dates or locations.
 
 **Important Rules:**
-- **NEVER** make up flight information. Only use the data from the provided tools.
+- **NEVER** make up flight or hotel information. Only use the data from the provided tools.
 - **DO NOT** retry a tool call with the exact same parameters if it fails. Ask the user for different information instead.
-- Today's date is ${new Date().toISOString().split('T')[0]}. Use this for context when users mention relative dates like "tomorrow".`,
-      tools: [{ functionDeclarations: [searchFlightsFunctionDeclaration, searchCityCodeFunctionDeclaration] }],
-    },
-  });
-}
-
-export const isGeminiConfigured = (): boolean => !!API_KEY;
-export { chat };
+- Today's date is ${new Date().toISOString().split('T')[0]}. Use this to calculate specific dates from relative terms like "tomorrow", "next week", and "next weekend". For "next weekend", assume the user means from the upcoming Saturday to the following Monday (a 2-night stay). For "this weekend", use the upcoming Saturday to Monday. If today is Saturday or Sunday, "this weekend" refers to the current one.`,
+    tools: [{ functionDeclarations: [searchFlightsFunctionDeclaration, searchCityCodeFunctionDeclaration, searchHotelsFunctionDeclaration] }],
+  },
+});

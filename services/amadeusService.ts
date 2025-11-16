@@ -1,9 +1,6 @@
-import { FlightOffer, Location, FlightSegment, Itinerary } from '../types';
+import { FlightOffer, Location, FlightSegment, Itinerary, HotelOffer, HotelAddress } from '../types';
 
-export const isAmadeusConfigured = (): boolean => {
-    return !!process.env.AMADEUS_API_KEY && !!process.env.AMADEUS_API_SECRET;
-};
-
+const PROXY_URL = 'https://proxy.cors.sh/';
 const AMADEUS_BASE_URL = 'https://test.api.amadeus.com';
 
 // In-memory cache for the Amadeus API token
@@ -11,6 +8,43 @@ let authToken: {
   token: string;
   expiresAt: number;
 } | null = null;
+
+const airlineWebsiteMap: { [carrierCode: string]: string } = {
+  'AA': 'https://www.aa.com/',
+  'DL': 'https://www.delta.com/',
+  'UA': 'https://www.united.com/',
+  'WN': 'https://www.southwest.com/',
+  'B6': 'https://www.jetblue.com/',
+  'AS': 'https://www.alaskaair.com/',
+  'NK': 'https://www.spirit.com/',
+  'F9': 'https://www.flyfrontier.com/',
+  'HA': 'https://www.hawaiianairlines.com/',
+  'LH': 'https://www.lufthansa.com/',
+  'BA': 'https://www.britishairways.com/',
+  'AF': 'https://www.airfrance.us/',
+  'KL': 'https://www.klm.com/',
+  'EK': 'https://www.emirates.com/',
+  'QR': 'https://www.qatarairways.com/',
+  'SQ': 'https://www.singaporeair.com/',
+  'CX': 'https://www.cathaypacific.com/',
+  'NH': 'https://www.ana.co.jp/',
+  'JL': 'https://www.jal.co.jp/',
+  'KE': 'https://www.koreanair.com/',
+  'EY': 'https://www.etihad.com/',
+  'TK': 'https://www.turkishairlines.com/',
+};
+
+const getAirlineBookingUrl = (carrierCode: string): string => {
+  const baseUrl = airlineWebsiteMap[carrierCode.toUpperCase()];
+  if (baseUrl) {
+    const url = new URL(baseUrl);
+    url.searchParams.append('utm_source', 'travelbilli_ai_travel');
+    url.searchParams.append('utm_medium', 'referral');
+    return url.toString();
+  }
+  // Fallback to a Google search for the airline if not in our map.
+  return `https://www.google.com/search?q=${encodeURIComponent(carrierCode + ' airline booking')}`;
+};
 
 /**
  * Fetches and caches an OAuth2 token from the Amadeus API.
@@ -21,19 +55,21 @@ const getAuthToken = async (): Promise<string> => {
     return authToken.token;
   }
 
-  const AMADEUS_API_KEY = process.env.AMADEUS_API_KEY;
-  const AMADEUS_API_SECRET = process.env.AMADEUS_API_SECRET;
+  const AMADEUS_API_KEY = sessionStorage.getItem('AMADEUS_API_KEY');
+  const AMADEUS_API_SECRET = sessionStorage.getItem('AMADEUS_API_SECRET');
   
   if (!AMADEUS_API_KEY || !AMADEUS_API_SECRET) {
-    throw new Error("Amadeus API credentials are not configured in environment variables (AMADEUS_API_KEY, AMADEUS_API_SECRET).");
+    throw new Error("Amadeus API credentials have not been provided for this session.");
   }
 
   console.log('Fetching new Amadeus auth token...');
   try {
-    const response = await fetch(`${AMADEUS_BASE_URL}/v1/security/oauth2/token`, {
+    const targetUrl = `${AMADEUS_BASE_URL}/v1/security/oauth2/token`;
+    const response = await fetch(`${PROXY_URL}${targetUrl}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
+        'x-cors-api-key': 'temp_220935574a781b452816823c46b5e1d5'
       },
       body: `grant_type=client_credentials&client_id=${AMADEUS_API_KEY}&client_secret=${AMADEUS_API_SECRET}`,
     });
@@ -41,7 +77,7 @@ const getAuthToken = async (): Promise<string> => {
     if (!response.ok) {
       const errorData = await response.json();
       console.error('Failed to fetch Amadeus token:', errorData);
-      throw new Error(`Amadeus authentication failed. Please check your environment variables. Status: ${response.status}`);
+      throw new Error(`Amadeus authentication failed. Please check your credentials. Status: ${response.status}`);
     }
 
     const data = await response.json();
@@ -84,11 +120,13 @@ export const searchCityCode = async (keyword: string): Promise<Location[]> => {
   console.log(`Searching for city code with keyword: ${keyword}`);
   try {
     const token = await getAuthToken();
+    const targetUrl = `${AMADEUS_BASE_URL}/v1/reference-data/locations?subType=CITY,AIRPORT&keyword=${encodeURIComponent(keyword.toUpperCase())}`;
     const response = await fetch(
-      `${AMADEUS_BASE_URL}/v1/reference-data/locations?subType=CITY,AIRPORT&keyword=${encodeURIComponent(keyword.toUpperCase())}`,
+      `${PROXY_URL}${targetUrl}`,
       {
         headers: {
           Authorization: `Bearer ${token}`,
+          'x-cors-api-key': 'temp_220935574a781b452816823c46b5e1d5'
         },
       }
     );
@@ -100,6 +138,7 @@ export const searchCityCode = async (keyword: string): Promise<Location[]> => {
         name: loc.name,
         iataCode: loc.iataCode,
         subType: loc.subType,
+        geoCode: loc.geoCode,
     }));
     
     console.log(`Found ${locations.length} locations for "${keyword}".`);
@@ -131,7 +170,7 @@ export const searchFlights = async (
       departureDate: departureDate,
       adults: adults.toString(),
       currencyCode: 'USD',
-      max: '10',
+      max: '25',
     });
     
     if (children > 0) {
@@ -141,9 +180,11 @@ export const searchFlights = async (
         params.append('returnDate', returnDate);
     }
 
-    const response = await fetch(`${AMADEUS_BASE_URL}/v2/shopping/flight-offers?${params.toString()}`, {
+    const targetUrl = `${AMADEUS_BASE_URL}/v2/shopping/flight-offers?${params.toString()}`;
+    const response = await fetch(`${PROXY_URL}${targetUrl}`, {
       headers: {
         Authorization: `Bearer ${token}`,
+        'x-cors-api-key': 'temp_220935574a781b452816823c46b5e1d5'
       },
     });
 
@@ -195,12 +236,13 @@ export const searchFlights = async (
         };
       });
 
+      const carrierCode = offer.itineraries[0].segments[0].carrierCode;
       return {
         id: offer.id,
         price: parseFloat(offer.price.total),
         itineraries,
-        airline: data.dictionaries.carriers[offer.itineraries[0].segments[0].carrierCode] || offer.itineraries[0].segments[0].carrierCode,
-        bookingUrl: `https://www.google.com/flights?q=${origin}-${destination}-${departureDate}${returnDate ? `*${destination}-${origin}-${returnDate}` : ''}&pax=${adults},${children},0`,
+        airline: data.dictionaries.carriers[carrierCode] || carrierCode,
+        bookingUrl: getAirlineBookingUrl(carrierCode),
       };
     });
 
@@ -210,4 +252,108 @@ export const searchFlights = async (
     console.error(`Error in searchFlights:`, error);
     return []; // Return empty array on error
   }
+};
+
+export const searchHotels = async (
+    cityCode: string,
+    checkInDate: string,
+    checkOutDate: string,
+    adults: number
+): Promise<HotelOffer[]> => {
+    console.log(
+        `Searching for hotels in ${cityCode} from ${checkInDate} to ${checkOutDate} for ${adults} adults.`
+    );
+    try {
+        const token = await getAuthToken();
+
+        // Step 1: Get hotel IDs for the given city
+        console.log(`Step 1: Fetching hotel list for city ${cityCode}...`);
+        const hotelListParams = new URLSearchParams({
+            cityCode,
+            radius: '20', // Search within a 20 KM radius
+            radiusUnit: 'KM',
+        });
+        const hotelListTargetUrl = `${AMADEUS_BASE_URL}/v1/reference-data/locations/hotels/by-city?${hotelListParams.toString()}`;
+        const hotelListResponse = await fetch(`${PROXY_URL}${hotelListTargetUrl}`, {
+            headers: { Authorization: `Bearer ${token}`, 'x-cors-api-key': 'temp_220935574a781b452816823c46b5e1d5' },
+        });
+
+        if (!hotelListResponse.ok) {
+            console.error('Amadeus Hotel List API Error Response:', await hotelListResponse.text());
+            throw new Error(`Failed to fetch hotel list with status: ${hotelListResponse.status}`);
+        }
+
+        const hotelListData = await hotelListResponse.json();
+        if (!hotelListData.data || hotelListData.data.length === 0) {
+            console.log(`No hotels found for city code ${cityCode}.`);
+            return [];
+        }
+
+        // Limit to the first 50 hotels to avoid overly long requests
+        const hotelIds = hotelListData.data.slice(0, 50).map((hotel: any) => hotel.hotelId).join(',');
+        console.log(`Step 1 successful. Found ${hotelListData.data.length} hotels, using IDs for the first ${hotelIds.split(',').length}.`);
+
+
+        // Step 2: Get offers for the found hotel IDs
+        console.log(`Step 2: Fetching offers for hotel IDs...`);
+        const hotelOffersParams = new URLSearchParams({
+            hotelIds,
+            checkInDate,
+            checkOutDate,
+            adults: adults.toString(),
+            currency: 'USD',
+            paymentPolicy: 'NONE',
+            bestRateOnly: 'true',
+            view: 'LIGHT',
+        });
+
+        const offersTargetUrl = `${AMADEUS_BASE_URL}/v3/shopping/hotel-offers?${hotelOffersParams.toString()}`;
+        const response = await fetch(`${PROXY_URL}${offersTargetUrl}`, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'x-cors-api-key': 'temp_220935574a781b452816823c46b5e1d5'
+            },
+        });
+
+        if (!response.ok) {
+            console.error('Amadeus Hotel Offers API Error Response:', await response.text());
+            throw new Error(`API call for hotel offers failed with status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!data.data || data.data.length === 0) {
+            console.log('No hotel offers found for the selected hotels.');
+            return [];
+        }
+
+        const hotelOffers: HotelOffer[] = data.data
+          .filter((offer: any) => offer.available && offer.hotel && offer.offers?.[0]?.price)
+          .map((offer: any): HotelOffer => {
+            const { hotel, offers } = offer;
+            const price = offers[0].price;
+
+            const address: HotelAddress = {
+              lines: hotel.address?.lines || [],
+              cityName: hotel.address?.cityName || '',
+              postalCode: hotel.address?.postalCode || '',
+              countryCode: hotel.address?.countryCode || '',
+            };
+            
+            return {
+              hotelId: hotel.hotelId,
+              name: hotel.name,
+              rating: hotel.rating ? parseInt(hotel.rating, 10) : 0,
+              address: address,
+              price: parseFloat(price.total),
+              bookingUrl: `https://www.google.com/search?q=${encodeURIComponent(hotel.name)}+${encodeURIComponent(address.cityName)}`,
+            };
+        });
+        
+        console.log(`Found ${hotelOffers.length} hotel offers.`);
+        return hotelOffers;
+
+    } catch (error) {
+        console.error(`Error in searchHotels:`, error);
+        return []; // Return empty array on error
+    }
 };

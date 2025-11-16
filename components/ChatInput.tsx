@@ -1,13 +1,15 @@
 
 import React, { useState } from 'react';
 import { PaperAirplaneIcon } from './IconComponents';
+import SuggestionChips from './SuggestionChips';
 
 interface ChatInputProps {
   onSendMessage: (message: string) => void;
   isLoading: boolean;
+  showSuggestions: boolean;
 }
 
-const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading }) => {
+const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading, showSuggestions }) => {
   const [input, setInput] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -20,6 +22,7 @@ const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading }) => {
 
   return (
     <div className="bg-gray-800 p-4">
+      {showSuggestions && !isLoading && <SuggestionChips onSendSuggestion={onSendMessage} />}
       <form
         onSubmit={handleSubmit}
         className="flex items-center space-x-4 max-w-4xl mx-auto"

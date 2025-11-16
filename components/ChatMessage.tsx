@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ChatMessage as Message, MessageRole, FlightOffer, Location, FlightSegment, Itinerary } from '../types';
-import { BotIcon, PlaneIcon, ArrowRightIcon } from './IconComponents';
+import { ChatMessage as Message, MessageRole, FlightOffer, Location, FlightSegment, Itinerary, HotelOffer } from '../types';
+import { BotIcon, PlaneIcon, BuildingOfficeIcon, StarIcon } from './IconComponents';
 
 interface ChatMessageProps {
   message: Message;
+  onCredentialsSaved?: () => void;
 }
 
 const durationToMinutes = (duration: string): number => {
@@ -17,6 +18,88 @@ const durationToMinutes = (duration: string): number => {
 const totalDuration = (itineraries: Itinerary[]): number => {
   return itineraries.reduce((sum, it) => sum + durationToMinutes(it.duration), 0);
 };
+
+const CredentialsForm: React.FC<{ onSave: () => void }> = ({ onSave }) => {
+  const [amadeusKey, setAmadeusKey] = useState('');
+  const [amadeusSecret, setAmadeusSecret] = useState('');
+  const [duffelKey, setDuffelKey] = useState('');
+  const [error, setError] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!amadeusKey.trim() || !amadeusSecret.trim() || !duffelKey.trim()) {
+      setError('All credential fields are required.');
+      return;
+    }
+    sessionStorage.setItem('AMADEUS_API_KEY', amadeusKey.trim());
+    sessionStorage.setItem('AMADEUS_API_SECRET', amadeusSecret.trim());
+    sessionStorage.setItem('DUFFEL_API_KEY', duffelKey.trim());
+    setError('');
+    onSave();
+  };
+
+  return (
+    <div className="p-4 bg-gray-800 rounded-lg max-w-md border border-gray-600">
+      <h3 className="font-bold text-lg text-white mb-2">API Credentials Required</h3>
+      <p className="text-sm text-gray-400 mb-4">
+        To search for flights and hotels, please provide your API credentials. They will only be stored for this session.
+      </p>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <fieldset className="border border-gray-600 p-3 rounded-md">
+          <legend className="text-sm font-medium text-gray-300 px-2">Amadeus</legend>
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="amadeusKey" className="block text-xs font-medium text-gray-400">API Key</label>
+              <input
+                id="amadeusKey"
+                type="text"
+                value={amadeusKey}
+                onChange={(e) => setAmadeusKey(e.target.value)}
+                className="w-full bg-gray-700 text-white placeholder-gray-500 rounded-md p-2 mt-1 border border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none transition duration-200"
+                placeholder="Amadeus API Key"
+              />
+            </div>
+            <div>
+              <label htmlFor="amadeusSecret" className="block text-xs font-medium text-gray-400">API Secret</label>
+              <input
+                id="amadeusSecret"
+                type="password"
+                value={amadeusSecret}
+                onChange={(e) => setAmadeusSecret(e.target.value)}
+                className="w-full bg-gray-700 text-white placeholder-gray-500 rounded-md p-2 mt-1 border border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none transition duration-200"
+                placeholder="Amadeus API Secret"
+              />
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset className="border border-gray-600 p-3 rounded-md">
+          <legend className="text-sm font-medium text-gray-300 px-2">Duffel</legend>
+          <div>
+            <label htmlFor="duffelKey" className="block text-xs font-medium text-gray-400">Access Token</label>
+            <input
+              id="duffelKey"
+              type="password"
+              value={duffelKey}
+              onChange={(e) => setDuffelKey(e.target.value)}
+              className="w-full bg-gray-700 text-white placeholder-gray-500 rounded-md p-2 mt-1 border border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none transition duration-200"
+              placeholder="Duffel Access Token"
+            />
+          </div>
+        </fieldset>
+        
+        <button
+          type="submit"
+          className="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-600 transition-colors duration-200"
+        >
+          Save for Session
+        </button>
+      </form>
+      {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
+    </div>
+  );
+};
+
 
 const ItineraryView: React.FC<{ itinerary: Itinerary; title: string }> = ({ itinerary, title }) => (
   <div className="mt-3 pt-3 border-t border-gray-600">
@@ -107,6 +190,54 @@ const LocationCard: React.FC<{ location: Location }> = ({ location }) => (
   </div>
 );
 
+const HotelOfferCard: React.FC<{ hotelOffer: HotelOffer }> = ({ hotelOffer }) => {
+  const renderStars = (rating: number) => {
+    return (
+      <div className="flex">
+        {[...Array(5)].map((_, i) => (
+          <StarIcon
+            key={i}
+            className={`w-4 h-4 ${i < rating ? 'text-yellow-400' : 'text-gray-500'}`}
+          />
+        ))}
+      </div>
+    );
+  };
+  
+  const fullAddress = [
+    ...hotelOffer.address.lines, 
+    hotelOffer.address.cityName, 
+    hotelOffer.address.postalCode
+  ].filter(Boolean).join(', ');
+
+  return (
+    <div className="bg-gray-700 rounded-lg shadow-md p-4 mt-3 max-w-lg border border-gray-600">
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <h3 className="font-bold text-lg text-blue-300">{hotelOffer.name}</h3>
+          {hotelOffer.rating > 0 && renderStars(hotelOffer.rating)}
+          <p className="text-xs text-gray-400 mt-2">{fullAddress}</p>
+        </div>
+        <div className="text-right ml-4">
+            <div className="text-xl font-semibold text-white">${hotelOffer.price.toFixed(2)}</div>
+            <div className="text-xs text-gray-400">per night</div>
+        </div>
+      </div>
+       <div className="flex justify-end items-center mt-4 pt-3 border-t border-gray-600">
+        <a 
+          href={hotelOffer.bookingUrl} 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors duration-200 text-sm"
+        >
+          Book Now
+        </a>
+      </div>
+    </div>
+  );
+};
+
+
 const SortButton: React.FC<{ onClick: () => void; isActive: boolean; children: React.ReactNode }> = ({ onClick, isActive, children }) => (
   <button
     onClick={onClick}
@@ -120,21 +251,36 @@ const SortButton: React.FC<{ onClick: () => void; isActive: boolean; children: R
   </button>
 );
 
-const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
+const ChatMessage: React.FC<ChatMessageProps> = ({ message, onCredentialsSaved }) => {
   const isUser = message.role === MessageRole.USER;
   const isSystem = message.role === MessageRole.SYSTEM;
 
   const isFlightMessage = Array.isArray(message.content) && message.content.length > 0 && 'itineraries' in message.content[0];
   const isLocationMessage = Array.isArray(message.content) && message.content.length > 0 && 'iataCode' in message.content[0];
+  const isHotelMessage = Array.isArray(message.content) && message.content.length > 0 && 'hotelId' in message.content[0];
+
 
   const [sortBy, setSortBy] = useState<'best' | 'cheapest' | 'fastest'>('best');
+  const [hotelSortBy, setHotelSortBy] = useState<'recommended' | 'priceLowHigh' | 'priceHighLow'>('recommended');
+  const [showAllFlights, setShowAllFlights] = useState(false);
+  const [showAllHotels, setShowAllHotels] = useState(false);
+
 
   // Reset sort when a new flight message is received
   useEffect(() => {
     if (isFlightMessage) {
       setSortBy('best');
+      setShowAllFlights(false);
     }
   }, [message.content, isFlightMessage]);
+
+  // Reset sort when a new hotel message is received
+  useEffect(() => {
+    if (isHotelMessage) {
+      setHotelSortBy('recommended');
+      setShowAllHotels(false);
+    }
+  }, [message.content, isHotelMessage]);
 
   const sortedFlightOffers = useMemo(() => {
     if (!isFlightMessage) return [];
@@ -155,10 +301,35 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     }
     return offersToSort;
   }, [message.content, sortBy, isFlightMessage]);
+  
+  const sortedHotelOffers = useMemo(() => {
+    if (!isHotelMessage) return [];
+    
+    const offersToSort = [...(message.content as HotelOffer[])];
+    
+    switch (hotelSortBy) {
+      case 'priceLowHigh':
+        offersToSort.sort((a, b) => a.price - b.price);
+        break;
+      case 'priceHighLow':
+        offersToSort.sort((a, b) => b.price - a.price);
+        break;
+      case 'recommended':
+      default:
+        offersToSort.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+        break;
+    }
+    return offersToSort;
+  }, [message.content, hotelSortBy, isHotelMessage]);
 
 
   const renderContent = () => {
+    if (message.content === "[REQUIRE_CREDENTIALS]") {
+        return <CredentialsForm onSave={onCredentialsSaved!} />;
+    }
     if (isFlightMessage) {
+      const offers = message.content as FlightOffer[];
+      const visibleOffers = showAllFlights ? sortedFlightOffers : sortedFlightOffers.slice(0, 5);
       return (
         <div>
           <div className="flex items-center gap-2 mb-2 border-b border-gray-600 pb-2">
@@ -167,12 +338,47 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
             <SortButton onClick={() => setSortBy('cheapest')} isActive={sortBy === 'cheapest'}>Cheapest</SortButton>
             <SortButton onClick={() => setSortBy('fastest')} isActive={sortBy === 'fastest'}>Fastest</SortButton>
           </div>
-          {sortedFlightOffers.map(offer => <FlightOfferCard key={offer.id} flightOffer={offer} />)}
+          {visibleOffers.map(offer => <FlightOfferCard key={offer.id} flightOffer={offer} />)}
+          {offers.length > 5 && (
+            <div className="text-center mt-4">
+              <button
+                onClick={() => setShowAllFlights(!showAllFlights)}
+                className="text-blue-400 hover:underline text-sm font-semibold focus:outline-none"
+              >
+                {showAllFlights ? 'Show Less' : `Show ${offers.length - 5} More`}
+              </button>
+            </div>
+          )}
         </div>
       );
     }
     if (isLocationMessage) {
       return (message.content as Location[]).map(loc => <LocationCard key={loc.iataCode} location={loc} />);
+    }
+    if (isHotelMessage) {
+      const offers = message.content as HotelOffer[];
+      const visibleOffers = showAllHotels ? sortedHotelOffers : sortedHotelOffers.slice(0, 5);
+      return (
+        <div>
+          <div className="flex items-center flex-wrap gap-2 mb-2 border-b border-gray-600 pb-2">
+            <span className="text-sm font-medium text-gray-300">Sort by:</span>
+            <SortButton onClick={() => setHotelSortBy('recommended')} isActive={hotelSortBy === 'recommended'}>Recommended</SortButton>
+            <SortButton onClick={() => setHotelSortBy('priceLowHigh')} isActive={hotelSortBy === 'priceLowHigh'}>Price (Low-High)</SortButton>
+            <SortButton onClick={() => setHotelSortBy('priceHighLow')} isActive={hotelSortBy === 'priceHighLow'}>Price (High-Low)</SortButton>
+          </div>
+          {visibleOffers.map(offer => <HotelOfferCard key={offer.hotelId} hotelOffer={offer} />)}
+          {offers.length > 5 && (
+            <div className="text-center mt-4">
+              <button
+                onClick={() => setShowAllHotels(!showAllHotels)}
+                className="text-blue-400 hover:underline text-sm font-semibold focus:outline-none"
+              >
+                {showAllHotels ? 'Show Less' : `Show ${offers.length - 5} More`}
+              </button>
+            </div>
+          )}
+        </div>
+      );
     }
     return <p className="whitespace-pre-wrap">{message.content as string}</p>;
   };

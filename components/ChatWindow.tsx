@@ -6,9 +6,10 @@ import ChatMessage from './ChatMessage';
 interface ChatWindowProps {
   messages: Message[];
   isLoading: boolean;
+  onCredentialsSaved: () => void;
 }
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ messages, isLoading }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ messages, isLoading, onCredentialsSaved }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -23,7 +24,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, isLoading }) => {
     <div className="flex-1 overflow-y-auto p-6 space-y-4">
       <div className="max-w-4xl mx-auto">
         {messages.map((msg) => (
-          <ChatMessage key={msg.id} message={msg} />
+          <ChatMessage key={msg.id} message={msg} onCredentialsSaved={onCredentialsSaved} />
         ))}
         {isLoading && (
             <div className="flex items-start my-4 justify-start">

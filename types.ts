@@ -1,3 +1,4 @@
+
 export enum MessageRole {
   USER = 'user',
   MODEL = 'model',
@@ -46,11 +47,32 @@ export interface Location {
   name: string;
   iataCode: string;
   subType: 'CITY' | 'AIRPORT';
+  geoCode?: {
+    latitude: number;
+    longitude: number;
+  };
+}
+
+export interface HotelAddress {
+  lines: string[];
+  cityName: string;
+  postalCode: string;
+  countryCode: string;
+}
+
+export interface HotelOffer {
+    hotelId: string;
+    name: string;
+    rating: number;
+    address: HotelAddress;
+    price: number;
+    bookingUrl: string;
+    score?: number;
 }
 
 
 export interface ChatMessage {
   id: string;
   role: MessageRole;
-  content: string | FlightOffer[] | Location[];
+  content: string | FlightOffer[] | Location[] | HotelOffer[];
 }
