@@ -4,7 +4,6 @@ import { BotIcon, PlaneIcon, BuildingOfficeIcon, StarIcon } from './IconComponen
 
 interface ChatMessageProps {
   message: Message;
-  onCredentialsSaved?: () => void;
 }
 
 const durationToMinutes = (duration: string): number => {
@@ -18,88 +17,6 @@ const durationToMinutes = (duration: string): number => {
 const totalDuration = (itineraries: Itinerary[]): number => {
   return itineraries.reduce((sum, it) => sum + durationToMinutes(it.duration), 0);
 };
-
-const CredentialsForm: React.FC<{ onSave: () => void }> = ({ onSave }) => {
-  const [amadeusKey, setAmadeusKey] = useState('');
-  const [amadeusSecret, setAmadeusSecret] = useState('');
-  const [duffelKey, setDuffelKey] = useState('');
-  const [error, setError] = useState('');
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!amadeusKey.trim() || !amadeusSecret.trim() || !duffelKey.trim()) {
-      setError('All credential fields are required.');
-      return;
-    }
-    sessionStorage.setItem('AMADEUS_API_KEY', amadeusKey.trim());
-    sessionStorage.setItem('AMADEUS_API_SECRET', amadeusSecret.trim());
-    sessionStorage.setItem('DUFFEL_API_KEY', duffelKey.trim());
-    setError('');
-    onSave();
-  };
-
-  return (
-    <div className="p-4 bg-gray-800 rounded-lg max-w-md border border-gray-600">
-      <h3 className="font-bold text-lg text-white mb-2">API Credentials Required</h3>
-      <p className="text-sm text-gray-400 mb-4">
-        To search for flights and hotels, please provide your API credentials. They will only be stored for this session.
-      </p>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <fieldset className="border border-gray-600 p-3 rounded-md">
-          <legend className="text-sm font-medium text-gray-300 px-2">Amadeus</legend>
-          <div className="space-y-3">
-            <div>
-              <label htmlFor="amadeusKey" className="block text-xs font-medium text-gray-400">API Key</label>
-              <input
-                id="amadeusKey"
-                type="text"
-                value={amadeusKey}
-                onChange={(e) => setAmadeusKey(e.target.value)}
-                className="w-full bg-gray-700 text-white placeholder-gray-500 rounded-md p-2 mt-1 border border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none transition duration-200"
-                placeholder="Amadeus API Key"
-              />
-            </div>
-            <div>
-              <label htmlFor="amadeusSecret" className="block text-xs font-medium text-gray-400">API Secret</label>
-              <input
-                id="amadeusSecret"
-                type="password"
-                value={amadeusSecret}
-                onChange={(e) => setAmadeusSecret(e.target.value)}
-                className="w-full bg-gray-700 text-white placeholder-gray-500 rounded-md p-2 mt-1 border border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none transition duration-200"
-                placeholder="Amadeus API Secret"
-              />
-            </div>
-          </div>
-        </fieldset>
-
-        <fieldset className="border border-gray-600 p-3 rounded-md">
-          <legend className="text-sm font-medium text-gray-300 px-2">Duffel</legend>
-          <div>
-            <label htmlFor="duffelKey" className="block text-xs font-medium text-gray-400">Access Token</label>
-            <input
-              id="duffelKey"
-              type="password"
-              value={duffelKey}
-              onChange={(e) => setDuffelKey(e.target.value)}
-              className="w-full bg-gray-700 text-white placeholder-gray-500 rounded-md p-2 mt-1 border border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none transition duration-200"
-              placeholder="Duffel Access Token"
-            />
-          </div>
-        </fieldset>
-        
-        <button
-          type="submit"
-          className="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-600 transition-colors duration-200"
-        >
-          Save for Session
-        </button>
-      </form>
-      {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
-    </div>
-  );
-};
-
 
 const ItineraryView: React.FC<{ itinerary: Itinerary; title: string }> = ({ itinerary, title }) => (
   <div className="mt-3 pt-3 border-t border-gray-600">
@@ -251,7 +168,7 @@ const SortButton: React.FC<{ onClick: () => void; isActive: boolean; children: R
   </button>
 );
 
-const ChatMessage: React.FC<ChatMessageProps> = ({ message, onCredentialsSaved }) => {
+const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const isUser = message.role === MessageRole.USER;
   const isSystem = message.role === MessageRole.SYSTEM;
 
@@ -324,9 +241,6 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ message, onCredentialsSaved }
 
 
   const renderContent = () => {
-    if (message.content === "[REQUIRE_CREDENTIALS]") {
-        return <CredentialsForm onSave={onCredentialsSaved!} />;
-    }
     if (isFlightMessage) {
       const offers = message.content as FlightOffer[];
       const visibleOffers = showAllFlights ? sortedFlightOffers : sortedFlightOffers.slice(0, 5);

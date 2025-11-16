@@ -6,9 +6,7 @@ import { ChatMessage as Message } from '../types';
 interface ChatViewProps {
   messages: Message[];
   isLoading: boolean;
-  onCredentialsSaved: () => void;
   onSendMessage: (message: string) => void;
-  areCredentialsSet: boolean;
   showSuggestions: boolean;
 }
 
@@ -18,11 +16,10 @@ const ChatView: React.FC<ChatViewProps> = (props) => {
       <ChatWindow
         messages={props.messages}
         isLoading={props.isLoading}
-        onCredentialsSaved={props.onCredentialsSaved}
       />
       <ChatInput
         onSendMessage={props.onSendMessage}
-        isLoading={props.isLoading || !props.areCredentialsSet}
+        isLoading={props.isLoading}
         showSuggestions={props.showSuggestions}
       />
     </div>

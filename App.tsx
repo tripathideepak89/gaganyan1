@@ -93,7 +93,6 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('flights');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [areCredentialsSet, setAreCredentialsSet] = useState<boolean>(false);
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
 
   // State for Flight Search Form
@@ -114,50 +113,17 @@ const App: React.FC = () => {
 
 
   useEffect(() => {
-    const amadeusKey = sessionStorage.getItem('AMADEUS_API_KEY');
-    const amadeusSecret = sessionStorage.getItem('AMADEUS_API_SECRET');
-    const duffelKey = sessionStorage.getItem('DUFFEL_API_KEY');
-    if (amadeusKey && amadeusSecret && duffelKey) {
-        setAreCredentialsSet(true);
-        setShowSuggestions(true);
-        setMessages([
-            {
-              id: 'init',
-              role: MessageRole.MODEL,
-              content: "Hello! I'm your travel assistant. You can ask me to find flights and hotels, or use the forms in the other tabs.",
-            },
-        ]);
-    } else {
-        setAreCredentialsSet(false);
-        setMessages([
-            {
-              id: 'init-creds',
-              role: MessageRole.MODEL,
-              content: "[REQUIRE_CREDENTIALS]",
-            },
-        ]);
-    }
+    setShowSuggestions(true);
+    setMessages([
+        {
+          id: 'init',
+          role: MessageRole.MODEL,
+          content: "Hello! I'm your travel assistant. You can ask me to find flights and hotels, or use the forms in the other tabs.",
+        },
+    ]);
   }, []);
 
-  const handleCredentialsSaved = () => {
-    setAreCredentialsSet(true);
-    setShowSuggestions(true);
-    setMessages(prev => {
-        const filteredMessages = prev.filter(m => m.content !== "[REQUIRE_CREDENTIALS]");
-        return [
-            ...filteredMessages,
-            {
-                id: 'creds-saved',
-                role: MessageRole.MODEL,
-                content: "Great! Credentials are set. You can now search for flights and hotels using the forms or by chatting with me."
-            }
-        ];
-    });
-  };
-
   const handleSendMessage = async (userInput: string) => {
-    if (!areCredentialsSet) return;
-    
     setShowSuggestions(false);
     setIsLoading(true);
 
@@ -357,7 +323,7 @@ const App: React.FC = () => {
         {activeTab === 'flights' && (
             <FlightSearchForm 
                 onSearch={handleFormSearch} 
-                isLoading={isLoading || !areCredentialsSet}
+                isLoading={isLoading}
                 tripType={tripType}
                 setTripType={setTripType}
                 from={from}
@@ -379,7 +345,7 @@ const App: React.FC = () => {
         {activeTab === 'hotels' && (
             <HotelSearchForm 
                 onSearch={handleFormSearch} 
-                isLoading={isLoading || !areCredentialsSet}
+                isLoading={isLoading}
                 destination={destination}
                 setDestination={setDestination}
                 checkIn={checkIn}
@@ -395,8 +361,6 @@ const App: React.FC = () => {
                 messages={messages}
                 isLoading={isLoading}
                 onSendMessage={handleSendMessage}
-                onCredentialsSaved={handleCredentialsSaved}
-                areCredentialsSet={areCredentialsSet}
                 showSuggestions={showSuggestions}
             />
         )}

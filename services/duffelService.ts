@@ -3,6 +3,8 @@ import { FlightOffer, FlightSegment, Itinerary, HotelOffer, HotelAddress } from 
 const PROXY_URL = 'https://proxy.cors.sh/';
 const DUFFEL_BASE_URL = 'https://api.duffel.com';
 
+let duffelStaysDisabled = false;
+
 const airlineWebsiteMap: { [carrierCode: string]: string } = {
   'AA': 'https://www.aa.com/',
   'DL': 'https://www.delta.com/',
@@ -67,9 +69,9 @@ export const searchFlights = async (
 ): Promise<FlightOffer[]> => {
   console.log(`Searching for flights with Duffel from ${origin} to ${destination}...`);
   
-  const DUFFEL_API_KEY = sessionStorage.getItem('DUFFEL_API_KEY');
+  const DUFFEL_API_KEY = process.env.DUFFEL_API_KEY;
   if (!DUFFEL_API_KEY) {
-    console.warn("Duffel API key not provided for this session.");
+    console.warn("Duffel API key is not configured as an environment variable.");
     return [];
   }
 
@@ -192,16 +194,16 @@ export const searchHotels = async (
     checkOutDate: string,
     adults: number,
 ): Promise<HotelOffer[]> => {
-    if (sessionStorage.getItem('DUFFEL_STAYS_DISABLED') === 'true') {
+    if (duffelStaysDisabled) {
         console.warn("Duffel Stays API is disabled for this key. Skipping search.");
         return [];
     }
 
     console.log(`Searching for hotels with Duffel near lat:${latitude}, long:${longitude}...`);
 
-    const DUFFEL_API_KEY = sessionStorage.getItem('DUFFEL_API_KEY');
+    const DUFFEL_API_KEY = process.env.DUFFEL_API_KEY;
     if (!DUFFEL_API_KEY) {
-        console.warn("Duffel API key not provided for this session.");
+        console.warn("Duffel API key is not configured as an environment variable.");
         return [];
     }
 
@@ -245,7 +247,7 @@ export const searchHotels = async (
             const errorText = await response.text();
             if (errorText.includes("This feature is not enabled for your account")) {
                 console.warn("Duffel Stays API feature is not enabled. Disabling for session.");
-                sessionStorage.setItem('DUFFEL_STAYS_DISABLED', 'true');
+                duffelStaysDisabled = true;
                 throw new Error("Duffel Stays API feature is not enabled for your account.");
             }
             console.error('Duffel Stays API Error Response:', errorText);

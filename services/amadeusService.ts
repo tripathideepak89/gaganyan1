@@ -55,11 +55,11 @@ const getAuthToken = async (): Promise<string> => {
     return authToken.token;
   }
 
-  const AMADEUS_API_KEY = sessionStorage.getItem('AMADEUS_API_KEY');
-  const AMADEUS_API_SECRET = sessionStorage.getItem('AMADEUS_API_SECRET');
+  const AMADEUS_API_KEY = process.env.AMADEUS_API_KEY;
+  const AMADEUS_API_SECRET = process.env.AMADEUS_API_SECRET;
   
   if (!AMADEUS_API_KEY || !AMADEUS_API_SECRET) {
-    throw new Error("Amadeus API credentials have not been provided for this session.");
+    throw new Error("Amadeus API credentials are not configured as environment variables.");
   }
 
   console.log('Fetching new Amadeus auth token...');
