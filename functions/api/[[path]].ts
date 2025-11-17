@@ -48,14 +48,15 @@ async function getAmadeusToken(apiKey: string, apiSecret: string): Promise<strin
 }
 
 // Fix for PagesFunction generic type issue by renaming to avoid potential conflicts
-type CFPagesFunction<Env = unknown> = (context: {
+type CFPagesFunction = (context: {
   request: Request;
   env: Env;
   params: Record<string, string | string[]>;
   waitUntil: (promise: Promise<any>) => void;
 }) => Promise<Response>;
 
-export const onRequest: CFPagesFunction<Env> = async (context) => {
+// Fix: Make CFPagesFunction non-generic to resolve "Expected 0 type arguments" error.
+export const onRequest: CFPagesFunction = async (context) => {
   const { request, env, params, waitUntil } = context;
   const url = new URL(request.url);
   const pathSegments = params.path as string[];
