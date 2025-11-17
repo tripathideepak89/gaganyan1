@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type, FunctionDeclaration, Chat } from '@google/genai';
 
-const API_KEY = '${env.API_KEY}';
+const API_KEY = process.env.API_KEY;
 
 const ai = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
 

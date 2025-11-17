@@ -11,20 +11,19 @@ let amadeusTokenCache = {
   expires: 0,
 };
 
-async function getAmadeusToken(env: Env): Promise<string> {
+async function getAmadeusToken(apiKey: string, apiSecret: string): Promise<string> {
   if (amadeusTokenCache.value && amadeusTokenCache.expires > Date.now()) {
     return amadeusTokenCache.value;
   }
 
-  const { AMADEUS_API_KEY, AMADEUS_API_SECRET } = env;
-  if (!AMADEUS_API_KEY || !AMADEUS_API_SECRET) {
+  if (!apiKey || !apiSecret) {
     throw new Error('Amadeus API credentials are not configured in environment.');
   }
 
   const response = await fetch('https://test.api.amadeus.com/v1/security/oauth2/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=client_credentials&client_id=${AMADEUS_API_KEY}&client_secret=${AMADEUS_API_SECRET}`,
+    body: `grant_type=client_credentials&client_id=${apiKey}&client_secret=${apiSecret}`,
   });
 
   if (!response.ok) {
@@ -69,16 +68,24 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
 
   try {
     if (apiProvider === 'amadeus') {
-      const token = await getAmadeusToken(env);
-      targetUrl = `https://test.api.amadeus.com/${actualPath}?${url.searchParams.toString()}`;
-      // Fix: Cast headers to Headers to use the .set() method, resolving 'Property 'set' does not exist on type 'HeadersInit'' error.
+      const { AMADEUS_API_KEY, AMADEUS_API_SECRET } = env;
+      const token = await getAmadeusToken(AMADEUS_API_KEY, AMADEUS_API_SECRET);
+      
+      const destinationUrl = new URL(actualPath, 'https://test.api.amadeus.com');
+      destinationUrl.search = url.search;
+      targetUrl = destinationUrl.toString();
+      
       (apiRequestOptions.headers as Headers).set('Authorization', `Bearer ${token}`);
     } else if (apiProvider === 'duffel') {
       const { DUFFEL_API_KEY } = env;
       if (!DUFFEL_API_KEY) {
         return new Response('Duffel API key not configured.', { status: 500 });
       }
-      targetUrl = `https://api.duffel.com/${actualPath}`;
+
+      const destinationUrl = new URL(actualPath, 'https://api.duffel.com');
+      destinationUrl.search = url.search;
+      targetUrl = destinationUrl.toString();
+
       // Fix: Cast headers to Headers to use the .set() method, resolving 'Property 'set' does not exist on type 'HeadersInit'' error.
       (apiRequestOptions.headers as Headers).set('Authorization', `Bearer ${DUFFEL_API_KEY}`);
       // Fix: Cast headers to Headers to use the .set() method, resolving 'Property 'set' does not exist on type 'HeadersInit'' error.
@@ -102,13 +109,13 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
 
   } catch (error) {
     console.error(`Proxy error for ${apiProvider}:`, error);
-    const message = error instanceof Error ? error.message : 'An unexpected error occurred.';
+    const message = error instanceof Error ? error.message : 'An unexpected error occurred';
     return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { 
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-      },
+        status: 500,
+        headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+        }
     });
   }
 };
