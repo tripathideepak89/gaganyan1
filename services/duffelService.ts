@@ -100,8 +100,8 @@ export const searchHotels = async (
 
     const requestBody = {
         data: {
-            rooms: "1",
-            location: { radius: "20", geographic_coordinates: { latitude, longitude } },
+            rooms: 1,
+            location: { radius: 20, geographic_coordinates: { latitude, longitude } },
             check_in_date: checkInDate, check_out_date: checkOutDate, guests,
         }
     };
