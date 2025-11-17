@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { GenerateContentResponse } from '@google/genai';
 import { ChatMessage, MessageRole, FlightOffer, Location, HotelOffer } from './types';
-import { chat } from './services/geminiService';
+import { chat, isApiKeySet } from './services/geminiService';
 import { searchFlights as searchFlightsAmadeus, searchCityCode, searchHotels as searchHotelsAmadeus } from './services/amadeusService';
 import { searchFlights as searchFlightsDuffel, searchHotels as searchHotelsDuffel } from './services/duffelService';
 import ChatView from './components/ChatView';
@@ -123,6 +123,25 @@ const App: React.FC = () => {
     ]);
   }, []);
 
+  if (!isApiKeySet) {
+    return (
+      <div className="flex flex-col h-screen bg-gray-900 text-white items-center justify-center p-8 text-center">
+        <div className="bg-red-800 border border-red-600 p-8 rounded-lg shadow-lg max-w-2xl">
+          <h1 className="text-3xl font-bold text-white mb-4">Configuration Error</h1>
+          <p className="text-lg text-red-100">
+            The application cannot start because the Google AI API key is missing.
+          </p>
+          <p className="mt-4 text-md text-red-200">
+            Please ensure the <code className="bg-red-900 px-2 py-1 rounded-md font-mono text-white">API_KEY</code> environment variable is set in your deployment configuration.
+          </p>
+          <p className="mt-6 text-sm text-gray-300">
+            This is a server-side configuration and needs to be resolved by the application administrator.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const handleSendMessage = async (userInput: string) => {
     setShowSuggestions(false);
     setIsLoading(true);
@@ -135,7 +154,7 @@ const App: React.FC = () => {
     setMessages((prevMessages) => [...prevMessages.filter(m => m.id !== 'init'), newUserMessage]);
 
     try {
-        let response: GenerateContentResponse = await chat.sendMessage({ message: userInput });
+        let response: GenerateContentResponse = await chat!.sendMessage({ message: userInput });
         
         let executionCount = 0;
         const MAX_EXECUTIONS = 5;
@@ -261,7 +280,7 @@ const App: React.FC = () => {
             }
 
             if (functionResponseParts.length > 0) {
-                response = await chat.sendMessage({ message: functionResponseParts as any});
+                response = await chat!.sendMessage({ message: functionResponseParts as any});
             } else {
                 break; 
             }

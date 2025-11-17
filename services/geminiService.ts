@@ -1,11 +1,8 @@
 import { GoogleGenAI, Type, FunctionDeclaration, Chat } from '@google/genai';
 
 const API_KEY = process.env.API_KEY;
-if (!API_KEY) {
-  throw new Error('API_KEY environment variable for Google GenAI is not set.');
-}
 
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+const ai = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
 
 const searchFlightsFunctionDeclaration: FunctionDeclaration = {
   name: 'searchFlights',
@@ -96,10 +93,11 @@ const searchHotelsFunctionDeclaration: FunctionDeclaration = {
 };
 
 
-export const chat: Chat = ai.chats.create({
-  model: 'gemini-2.5-flash',
-  config: {
-    systemInstruction: `You are a friendly and helpful flight and hotel booking assistant. Your goal is to make finding flights and hotels easy and conversational.
+export const chat: Chat | null = ai
+  ? ai.chats.create({
+      model: 'gemini-2.5-flash',
+      config: {
+        systemInstruction: `You are a friendly and helpful flight and hotel booking assistant. Your goal is to make finding flights and hotels easy and conversational.
 
 **Your Capabilities:**
 - You can search for one-way or round-trip flights.
@@ -124,6 +122,9 @@ export const chat: Chat = ai.chats.create({
 - **NEVER** make up flight or hotel information. Only use the data from the provided tools.
 - **DO NOT** retry a tool call with the exact same parameters if it fails. Ask the user for different information instead.
 - Today's date is ${new Date().toISOString().split('T')[0]}. Use this to calculate specific dates from relative terms like "tomorrow", "next week", and "next weekend". For "next weekend", assume the user means from the upcoming Saturday to the following Monday (a 2-night stay). For "this weekend", use the upcoming Saturday to Monday. If today is Saturday or Sunday, "this weekend" refers to the current one.`,
-    tools: [{ functionDeclarations: [searchFlightsFunctionDeclaration, searchCityCodeFunctionDeclaration, searchHotelsFunctionDeclaration] }],
-  },
-});
+        tools: [{ functionDeclarations: [searchFlightsFunctionDeclaration, searchCityCodeFunctionDeclaration, searchHotelsFunctionDeclaration] }],
+      },
+    })
+  : null;
+
+export const isApiKeySet = !!API_KEY;
