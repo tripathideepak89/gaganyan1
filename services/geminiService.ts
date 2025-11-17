@@ -1,20 +1,5 @@
 import { GoogleGenAI, Type, FunctionDeclaration, Chat } from '@google/genai';
 
-const getApiKey = (): string => {
-  try {
-    // This will throw a ReferenceError if process is not defined,
-    // which is expected in a browser-only environment.
-    return process.env.API_KEY || '';
-  } catch (e) {
-    console.warn('Could not read API_KEY from process.env');
-    return '';
-  }
-};
-
-const API_KEY = getApiKey();
-
-const ai = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
-
 const searchFlightsFunctionDeclaration: FunctionDeclaration = {
   name: 'searchFlights',
   description:
@@ -104,8 +89,35 @@ const searchHotelsFunctionDeclaration: FunctionDeclaration = {
 };
 
 
-export const chat: Chat | null = ai
-  ? ai.chats.create({
+export const initializeChat = async (): Promise<Chat | null> => {
+  let apiKey: string | undefined;
+
+  try {
+    // @ts-ignore - aistudio is a global in the environment
+    if (window?.aistudio?.getApiKey) {
+      // @ts-ignore
+      apiKey = await window.aistudio.getApiKey();
+    }
+  } catch (e) {
+    console.warn('Could not get API key from aistudio:', e);
+  }
+
+  if (!apiKey) {
+    try {
+      apiKey = process.env.API_KEY;
+    } catch (e) {
+      console.warn('Could not read API_KEY from process.env');
+    }
+  }
+  
+  if (!apiKey) {
+    console.error('API key is not available.');
+    return null;
+  }
+  
+  const ai = new GoogleGenAI({ apiKey });
+
+  return ai.chats.create({
       model: 'gemini-2.5-flash',
       config: {
         systemInstruction: `You are a friendly and helpful flight and hotel booking assistant. Your goal is to make finding flights and hotels easy and conversational.
@@ -135,7 +147,5 @@ export const chat: Chat | null = ai
 - Today's date is ${new Date().toISOString().split('T')[0]}. Use this to calculate specific dates from relative terms like "tomorrow", "next week", and "next weekend". For "next weekend", assume the user means from the upcoming Saturday to the following Monday (a 2-night stay). For "this weekend", use the upcoming Saturday to Monday. If today is Saturday or Sunday, "this weekend" refers to the current one.`,
         tools: [{ functionDeclarations: [searchFlightsFunctionDeclaration, searchCityCodeFunctionDeclaration, searchHotelsFunctionDeclaration] }],
       },
-    })
-  : null;
-
-export const isApiKeySet = !!API_KEY;
+    });
+};

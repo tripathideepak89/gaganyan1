@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { GenerateContentResponse } from '@google/genai';
+import { GenerateContentResponse, Chat } from '@google/genai';
 import { ChatMessage, MessageRole, FlightOffer, Location, HotelOffer } from './types';
-import { chat, isApiKeySet } from './services/geminiService';
+import { initializeChat } from './services/geminiService';
 import { searchFlights as searchFlightsAmadeus, searchCityCode, searchHotels as searchHotelsAmadeus } from './services/amadeusService';
 import { searchFlights as searchFlightsDuffel, searchHotels as searchHotelsDuffel } from './services/duffelService';
 import ChatView from './components/ChatView';
@@ -90,6 +90,11 @@ const calculateHotelScores = (offers: HotelOffer[]): HotelOffer[] => {
 
 const App: React.FC = () => {
   type ActiveTab = 'flights' | 'hotels' | 'chat';
+  type AppStatus = 'initializing' | 'ready' | 'error';
+
+  const [appStatus, setAppStatus] = useState<AppStatus>('initializing');
+  const [chatInstance, setChatInstance] = useState<Chat | null>(null);
+
   const [activeTab, setActiveTab] = useState<ActiveTab>('flights');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -113,17 +118,35 @@ const App: React.FC = () => {
 
 
   useEffect(() => {
-    setShowSuggestions(true);
-    setMessages([
-        {
-          id: 'init',
-          role: MessageRole.MODEL,
-          content: "Hello! I'm your travel assistant. You can ask me to find flights and hotels, or use the forms in the other tabs.",
-        },
-    ]);
+    const init = async () => {
+      const chat = await initializeChat();
+      if (chat) {
+        setChatInstance(chat);
+        setAppStatus('ready');
+        setShowSuggestions(true);
+        setMessages([
+            {
+              id: 'init',
+              role: MessageRole.MODEL,
+              content: "Hello! I'm your travel assistant. You can ask me to find flights and hotels, or use the forms in the other tabs.",
+            },
+        ]);
+      } else {
+        setAppStatus('error');
+      }
+    };
+    init();
   }, []);
 
-  if (!isApiKeySet) {
+  if (appStatus === 'initializing') {
+    return (
+      <div className="flex flex-col h-screen bg-gray-900 text-white items-center justify-center p-8 text-center">
+        <h1 className="text-2xl font-semibold">Initializing Assistant...</h1>
+      </div>
+    );
+  }
+
+  if (appStatus === 'error') {
     return (
       <div className="flex flex-col h-screen bg-gray-900 text-white items-center justify-center p-8 text-center">
         <div className="bg-red-800 border border-red-600 p-8 rounded-lg shadow-lg max-w-2xl">
@@ -132,7 +155,7 @@ const App: React.FC = () => {
             The application cannot start because the Google AI API key is missing.
           </p>
           <p className="mt-4 text-md text-red-200">
-            Please ensure the <code className="bg-red-900 px-2 py-1 rounded-md font-mono text-white">API_KEY</code> environment variable is set in your deployment configuration.
+            Please ensure the <code className="bg-red-900 px-2 py-1 rounded-md font-mono text-white">API_KEY</code> environment variable is set in your deployment configuration, or use this in an environment where the key can be provided automatically.
           </p>
           <p className="mt-6 text-sm text-gray-300">
             This is a server-side configuration and needs to be resolved by the application administrator.
@@ -143,6 +166,8 @@ const App: React.FC = () => {
   }
 
   const handleSendMessage = async (userInput: string) => {
+    if (!chatInstance) return;
+
     setShowSuggestions(false);
     setIsLoading(true);
 
@@ -154,7 +179,7 @@ const App: React.FC = () => {
     setMessages((prevMessages) => [...prevMessages.filter(m => m.id !== 'init'), newUserMessage]);
 
     try {
-        let response: GenerateContentResponse = await chat!.sendMessage({ message: userInput });
+        let response: GenerateContentResponse = await chatInstance.sendMessage({ message: userInput });
         
         let executionCount = 0;
         const MAX_EXECUTIONS = 5;
@@ -280,7 +305,7 @@ const App: React.FC = () => {
             }
 
             if (functionResponseParts.length > 0) {
-                response = await chat!.sendMessage({ message: functionResponseParts as any});
+                response = await chatInstance.sendMessage({ message: functionResponseParts as any});
             } else {
                 break; 
             }
