@@ -93,7 +93,7 @@ export const initializeChat = async (): Promise<Chat | null> => {
   let apiKey: string | undefined;
 
   try {
-    const response = await fetch('/api/get-key');
+    const response = await fetch('/get-key');
     if (response.ok) {
         const data = await response.json();
         apiKey = data.apiKey;

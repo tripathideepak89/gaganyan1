@@ -11,15 +11,20 @@ type PagesFunction<Env = unknown> = (context: {
 export const onRequest: PagesFunction<Env> = async ({ env }) => {
   const apiKey = env.API_KEY;
 
+  const headers = {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*'
+  };
+
   if (!apiKey) {
     return new Response(JSON.stringify({ error: 'API_KEY is not configured on the server.' }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json' },
+      headers: headers,
     });
   }
 
   return new Response(JSON.stringify({ apiKey }), {
     status: 200,
-    headers: { 'Content-Type': 'application/json' },
+    headers: headers,
   });
 };

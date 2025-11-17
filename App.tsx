@@ -128,7 +128,7 @@ const App: React.FC = () => {
             {
               id: 'init',
               role: MessageRole.MODEL,
-              content: "Hello! I'm your travel assistant. You can ask me to find flights and hotels, or use the forms in the other tabs.",
+              content: "Hello! I'm TravelBilli, your expert travel assistant, ready to plan your family's perfect getaway.\n\nWhile I can't browse destinations based on broad terms like 'cheapest' or 'hottest,' I can help you explore some fantastic options. Travelers looking for warm, budget-friendly destinations in December often consider places like Cancún, Mexico or Phuket, Thailand.\n\nDo any of those sound interesting, or do you have another destination in mind? Let me know, and I'll find the best flight and hotel deals for you, your wife, and your 4-year-old!",
             },
         ]);
       } else {

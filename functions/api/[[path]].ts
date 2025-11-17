@@ -53,21 +53,6 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
   const pathSegments = params.path as string[];
 
   const apiProvider = pathSegments[0];
-
-  if (apiProvider === 'get-key') {
-    const apiKey = env.API_KEY;
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: 'API_KEY is not configured on the server.' }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      });
-    }
-    return new Response(JSON.stringify({ apiKey }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-    });
-  }
-
   const actualPath = pathSegments.slice(1).join('/');
 
   const requestHeaders = new Headers(request.headers);
