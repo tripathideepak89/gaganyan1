@@ -93,25 +93,22 @@ export const initializeChat = async (): Promise<Chat | null> => {
   let apiKey: string | undefined;
 
   try {
-    // @ts-ignore - aistudio is a global in the environment
-    if (window?.aistudio?.getApiKey) {
-      // @ts-ignore
-      apiKey = await window.aistudio.getApiKey();
+    const response = await fetch('/get-key');
+    if (response.ok) {
+        const data = await response.json();
+        apiKey = data.apiKey;
+    } else {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to parse error from server' }));
+        console.error('Failed to fetch API key from server:', errorData.error);
+        return null;
     }
   } catch (e) {
-    console.warn('Could not get API key from aistudio:', e);
-  }
-
-  if (!apiKey) {
-    try {
-      apiKey = process.env.API_KEY;
-    } catch (e) {
-      console.warn('Could not read API_KEY from process.env');
-    }
+    console.error('Network or parsing error when fetching API key:', e);
+    return null;
   }
   
   if (!apiKey) {
-    console.error('API key is not available.');
+    console.error('API key was not provided by the server.');
     return null;
   }
   
