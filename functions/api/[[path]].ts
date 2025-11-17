@@ -65,7 +65,8 @@ export const onRequest: CFPagesFunction = async (context) => {
   // Handle logging requests
   if (apiProvider === 'log' && pathSegments[1] === 'search' && request.method === 'POST') {
     try {
-      const { user, query } = await request.json<{ user: { email: string }, query: string }>();
+      // Fix: The .json() method on Request does not accept a generic type argument. Cast the result instead.
+      const { user, query } = await request.json() as { user: { email: string }, query: string };
       if (!user || !user.email || !query) {
         return new Response('Missing user email or query for logging.', { status: 400 });
       }
