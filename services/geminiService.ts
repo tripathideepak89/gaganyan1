@@ -1,6 +1,17 @@
 import { GoogleGenAI, Type, FunctionDeclaration, Chat } from '@google/genai';
 
-const API_KEY = process.env.API_KEY;
+const getApiKey = (): string => {
+  try {
+    // This will throw a ReferenceError if process is not defined,
+    // which is expected in a browser-only environment.
+    return process.env.API_KEY || '';
+  } catch (e) {
+    console.warn('Could not read API_KEY from process.env');
+    return '';
+  }
+};
+
+const API_KEY = getApiKey();
 
 const ai = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
 
