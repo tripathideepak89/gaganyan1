@@ -284,9 +284,23 @@ const App: React.FC = () => {
                     const hotelOffersWithScores = calculateHotelScores(uniqueHotelOffers);
                     hotelOffersWithScores.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
                     
+                    let messageForModel = uniqueHotelOffers.length > 0 
+                        ? `Found ${uniqueHotelOffers.length} hotels.` 
+                        : "No hotels found.";
+
+                    if (uniqueHotelOffers.length === 0 && checkInDate) {
+                        const today = new Date();
+                        const elevenMonthsFromNow = new Date(today.getFullYear(), today.getMonth() + 11, today.getDate());
+                        const checkIn = new Date(checkInDate as string);
+
+                        if (checkIn > elevenMonthsFromNow) {
+                            messageForModel = "No hotels were found. This might be because the check-in date is more than 11 months in the future, and availability is often limited that far in advance. Please try searching for dates closer to today.";
+                        }
+                    }
+                    
                     const summaryResult = {
                         count: uniqueHotelOffers.length,
-                        message: uniqueHotelOffers.length > 0 ? `Found ${uniqueHotelOffers.length} hotels.` : "No hotels found."
+                        message: messageForModel,
                     };
                     functionResponseParts.push({ functionResponse: { name: fc.name, response: { result: summaryResult }}});
                     

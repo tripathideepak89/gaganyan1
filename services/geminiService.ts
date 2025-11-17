@@ -63,7 +63,7 @@ const searchCityCodeFunctionDeclaration: FunctionDeclaration = {
 
 const searchHotelsFunctionDeclaration: FunctionDeclaration = {
   name: 'searchHotels',
-  description: 'Searches for available hotels in a specific city for given dates.',
+  description: 'Searches for available hotels in a specific city for given dates. Note: This tool currently only supports searching for adult guests.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -93,13 +93,14 @@ export const initializeChat = async (): Promise<Chat | null> => {
   let apiKey: string | undefined;
 
   try {
-    const response = await fetch('/get-key');
+    const response = await fetch('/api/get-key');
     if (response.ok) {
         const data = await response.json();
         apiKey = data.apiKey;
     } else {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to parse error from server' }));
-        console.error('Failed to fetch API key from server:', errorData.error);
+        console.error(`Failed to fetch API key. Status: ${response.status} ${response.statusText}`);
+        const errorText = await response.text();
+        console.error('Server response:', errorText);
         return null;
     }
   } catch (e) {
@@ -128,7 +129,7 @@ export const initializeChat = async (): Promise<Chat | null> => {
 1.  **Maintain Context:** Pay close attention to the most recent search context. If a user provides a follow-up query, assume it relates to the last search type (flight or hotel) unless they explicitly mention a different one. For example, if you just provided flight results and the user says "what about for tomorrow?", assume they are asking for flights for tomorrow.
 2.  **Clarify Details:** If a user's request is still ambiguous after considering the context, ask clarifying questions.
     - For flights: If they don't specify the number of passengers, assume 1 adult. When a user provides a passenger's age, categorize them: "adults" are 12 and over, and "children" are ages 2-11. If the user mentions children, you MUST ask for their individual ages and pass them to the \`searchFlights\` tool using the \`childAges\` parameter. You do not need to handle infants (under age 2).
-    - For hotels: If they don't specify dates, ask for them, unless you can infer them from relative terms. If they don't specify the number of adults, assume 2.
+    - For hotels: If they don't specify dates, ask for them, unless you can infer them from relative terms. If they don't specify the number of adults, assume 2. The hotel search tool currently only supports adults. If a user asks for hotels with children, inform them of this limitation and ask if they would like to proceed with a search for just the adults.
     - **Handling Vague Answers:** If you ask a question with multiple options (e.g., "Are you looking for flights or hotels?") and the user gives a vague affirmative response like "yes", do not repeat the question. Instead, guide them to a specific choice, for example: "Great! Please specify if you're looking for a flight or a hotel."
 3.  **Find IATA Codes:** For both flights and hotels, you MUST use the \`searchCityCode\` tool to find the IATA codes for the location. Never ask the user for these codes directly.
 4.  **Handle Location Issues:**
@@ -137,6 +138,7 @@ export const initializeChat = async (): Promise<Chat | null> => {
 5.  **Search for Flights or Hotels:** Once you have the IATA codes, use the appropriate tool (\`searchFlights\` or \`searchHotels\`) to find options.
 6.  **Present Results:** When you have flight or hotel information, present it clearly to the user.
 7.  **Handle "No Results":** If a search tool returns no results, inform the user and suggest they try different dates or locations.
+    - For hotels, if the check-in date is more than 11 months in the future and the search returns no results, mention that hotel availability is often limited that far in advance and suggest searching for dates closer to today.
 
 **Important Rules:**
 - **NEVER** make up flight or hotel information. Only use the data from the provided tools.
