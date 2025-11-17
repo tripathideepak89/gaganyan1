@@ -88,8 +88,9 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
 
       // Fix: Cast headers to Headers to use the .set() method, resolving 'Property 'set' does not exist on type 'HeadersInit'' error.
       (apiRequestOptions.headers as Headers).set('Authorization', `Bearer ${DUFFEL_API_KEY}`);
-      // Fix: Cast headers to Headers to use the .set() method, resolving 'Property 'set' does not exist on type 'HeadersInit'' error.
-      (apiRequestOptions.headers as Headers).set('Duffel-Version', 'v2');
+      // Use the correct API version based on the endpoint being called
+      const duffelVersion = actualPath.startsWith('stays/') ? 'beta' : 'v1';
+      (apiRequestOptions.headers as Headers).set('Duffel-Version', duffelVersion);
     } else {
       return new Response('Invalid API provider.', { status: 400 });
     }
