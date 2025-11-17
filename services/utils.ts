@@ -9,7 +9,13 @@ export const airlineWebsiteMap: { [carrierCode: string]: string } = {
   'TK': 'https://www.turkishairlines.com/',
 };
 
-export const getAirlineBookingUrl = (carrierCode: string): string => {
+export const getAirlineBookingUrl = (
+    carrierCode: string, 
+    origin?: string, 
+    destination?: string, 
+    departureDate?: string, 
+    returnDate?: string
+): string => {
   const baseUrl = airlineWebsiteMap[carrierCode.toUpperCase()];
   if (baseUrl) {
     const url = new URL(baseUrl);
@@ -17,6 +23,17 @@ export const getAirlineBookingUrl = (carrierCode: string): string => {
     url.searchParams.append('utm_medium', 'referral');
     return url.toString();
   }
+
+  // Fallback to Google Flights deep link
+  if (origin && destination && departureDate) {
+    let fltParam = `${origin}.${destination}.${departureDate}`;
+    if (returnDate) {
+      fltParam += `*${destination}.${origin}.${returnDate}`;
+    }
+    return `https://www.google.com/flights#flt=${fltParam}`;
+  }
+  
+  // Last resort fallback
   return `https://www.google.com/search?q=${encodeURIComponent(carrierCode + ' airline booking')}`;
 };
 

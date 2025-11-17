@@ -72,7 +72,7 @@ export const searchFlights = async (
       const carrierCode = offer.owner.iata_code;
       return {
         id: offer.id, price: parseFloat(offer.total_amount), itineraries,
-        airline: offer.owner.name, bookingUrl: getAirlineBookingUrl(carrierCode),
+        airline: offer.owner.name, bookingUrl: getAirlineBookingUrl(carrierCode, origin, destination, departureDate, returnDate),
       };
     });
 
@@ -152,7 +152,7 @@ export const searchHotels = async (
                     rating: prop.star_rating ? parseInt(prop.star_rating, 10) : 0,
                     address,
                     price: parseFloat(rate.total_amount),
-                    bookingUrl: `https://www.google.com/travel/hotels/s?q=${encodeURIComponent(prop.name + ' ' + address.cityName)}&checkin=${checkInDate}&checkout=${checkOutDate}&adults=${adults}`,
+                    bookingUrl: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(prop.name + ', ' + address.cityName)}&checkin=${checkInDate}&checkout=${checkOutDate}&group_adults=${adults}&sb=1`,
                 };
         });
 
