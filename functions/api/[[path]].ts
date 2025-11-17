@@ -65,6 +65,11 @@ export const onRequest: CFPagesFunction = async (context) => {
   // Handle logging requests
   if (apiProvider === 'log' && pathSegments[1] === 'search' && request.method === 'POST') {
     try {
+      if (!env.LOG_DB) {
+        console.warn('LOG_DB (KV Namespace) is not configured. Skipping search logging.');
+        return new Response('Log skipped (KV binding missing).', { status: 200 });
+      }
+      
       // Fix: The .json() method on Request does not accept a generic type argument. Cast the result instead.
       const { user, query } = await request.json() as { user: { email: string }, query: string };
       if (!user || !user.email || !query) {
