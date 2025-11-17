@@ -173,3 +173,36 @@ export const searchHotels = async (
         return [];
     }
 };
+
+export const reverseGeocode = async (latitude: number, longitude: number): Promise<string | null> => {
+    console.log(`Reverse geocoding for lat: ${latitude}, lon: ${longitude}`);
+    try {
+        const params = new URLSearchParams({
+            latitude: latitude.toString(),
+            longitude: longitude.toString(),
+            radius: '100', // Search within a 100KM radius for the nearest city/airport
+        });
+        const targetUrl = `${AMADEUS_PROXY_URL}/v1/reference-data/locations/airports?${params.toString()}`;
+        const response = await fetch(targetUrl);
+
+        if (!response.ok) {
+            console.error('Amadeus Reverse Geocode API Error Response:', await response.text());
+            throw new Error(`Failed to reverse geocode with status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!data.data || data.data.length === 0) {
+            console.log('No locations found for the given coordinates.');
+            return null;
+        }
+
+        // Return the city name of the first (closest) result
+        const cityName = data.data[0]?.address?.cityName;
+        console.log(`Found city: ${cityName}`);
+        return cityName || null;
+
+    } catch (error) {
+        console.error('Error in reverseGeocode:', error);
+        return null;
+    }
+};

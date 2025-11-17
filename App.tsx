@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { GenerateContentResponse, Chat } from '@google/genai';
 import { ChatMessage, MessageRole, FlightOffer, Location, HotelOffer } from './types';
 import { initializeChat } from './services/geminiService';
-import { searchFlights as searchFlightsAmadeus, searchCityCode, searchHotels as searchHotelsAmadeus } from './services/amadeusService';
+import { searchFlights as searchFlightsAmadeus, searchCityCode, searchHotels as searchHotelsAmadeus, reverseGeocode } from './services/amadeusService';
 import { searchFlights as searchFlightsDuffel, searchHotels as searchHotelsDuffel } from './services/duffelService';
 import ChatView from './components/ChatView';
 import FlightSearchForm from './components/FlightSearchForm';
@@ -104,6 +104,7 @@ const App: React.FC = () => {
   // User state
   const [currentUser, setCurrentUser] = useState<{name: string, email: string} | null>(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ city: string } | null>(null);
 
   // State for Flight Search Form
   const [tripType, setTripType] = useState<'roundtrip' | 'oneway'>('roundtrip');
@@ -124,26 +125,53 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const init = async () => {
-      // Check for logged in user
+      // User and Location logic
       const storedUser = localStorage.getItem('travelbilli_user');
       if (storedUser) {
         setCurrentUser(JSON.parse(storedUser));
       }
 
-      const chat = await initializeChat();
-      if (chat) {
-        setChatInstance(chat);
-        setAppStatus('ready');
-        setShowSuggestions(true);
-        setMessages([
-            {
-              id: 'init',
-              role: MessageRole.MODEL,
-              content: "Hello! I'm TravelBilli, your expert travel assistant, ready to plan your family's perfect getaway.\n\nWhile I can't browse destinations based on broad terms like 'cheapest' or 'hottest,' I can help you explore some fantastic options. Travelers looking for warm, budget-friendly destinations in December often consider places like Cancún, Mexico or Phuket, Thailand.\n\nDo any of those sound interesting, or do you have another destination in mind? Let me know, and I'll find the best flight and hotel deals for you, your wife, and your 4-year-old!",
-            },
-        ]);
+      const initializeAndLoadChat = async (location: { city: string } | null) => {
+        const chat = await initializeChat(location);
+        if (chat) {
+          setChatInstance(chat);
+          setAppStatus('ready');
+          setShowSuggestions(true);
+          setMessages([
+              {
+                id: 'init',
+                role: MessageRole.MODEL,
+                content: "Hello! I'm TravelBilli, your expert travel assistant, ready to plan your family's perfect getaway.\n\nWhile I can't browse destinations based on broad terms like 'cheapest' or 'hottest,' I can help you explore some fantastic options. Travelers looking for warm, budget-friendly destinations in December often consider places like Cancún, Mexico or Phuket, Thailand.\n\nDo any of those sound interesting, or do you have another destination in mind? Let me know, and I'll find the best flight and hotel deals for you, your wife, and your 4-year-old!",
+              },
+          ]);
+        } else {
+          setAppStatus('error');
+        }
+      };
+
+      const storedLocation = localStorage.getItem('travelbilli_location');
+      if (storedLocation) {
+        const locationData = JSON.parse(storedLocation);
+        setUserLocation(locationData);
+        initializeAndLoadChat(locationData);
       } else {
-        setAppStatus('error');
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            const { latitude, longitude } = position.coords;
+            const city = await reverseGeocode(latitude, longitude);
+            const locationData = city ? { city } : null;
+            if (locationData) {
+                setUserLocation(locationData);
+                localStorage.setItem('travelbilli_location', JSON.stringify(locationData));
+            }
+            initializeAndLoadChat(locationData);
+          },
+          (error) => {
+            console.warn(`Geolocation error: ${error.message}`);
+            initializeAndLoadChat(null); // Initialize without location
+          },
+          { timeout: 10000 }
+        );
       }
     };
     init();
@@ -159,6 +187,20 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setCurrentUser(null);
     localStorage.removeItem('travelbilli_user');
+  };
+
+  const logSearch = async (query: string) => {
+    if (currentUser && currentUser.email) {
+      try {
+        await fetch('/api/log/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user: { email: currentUser.email }, query }),
+        });
+      } catch (error) {
+        console.error('Failed to log search:', error);
+      }
+    }
   };
 
   if (appStatus === 'initializing') {
@@ -191,6 +233,7 @@ const App: React.FC = () => {
   const handleSendMessage = async (userInput: string) => {
     if (!chatInstance) return;
 
+    logSearch(userInput);
     setShowSuggestions(false);
     setIsLoading(true);
 
@@ -374,6 +417,7 @@ const App: React.FC = () => {
   };
 
   const handleFormSearch = (query: string) => {
+    logSearch(query);
     setActiveTab('chat');
     handleSendMessage(query);
   };

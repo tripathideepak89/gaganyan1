@@ -1,8 +1,14 @@
+// Fix for KVNamespace type not being found
+interface KVNamespace {
+  put(key: string, value: string): Promise<void>;
+}
+
 interface Env {
   API_KEY: string;
   AMADEUS_API_KEY: string;
   AMADEUS_API_SECRET: string;
   DUFFEL_API_KEY: string;
+  LOG_DB: KVNamespace;
 }
 
 // A simple in-memory cache for the Amadeus token within the worker instance
@@ -41,18 +47,35 @@ async function getAmadeusToken(apiKey: string, apiSecret: string): Promise<strin
   return amadeusTokenCache.value;
 }
 
-// Fix: Add type definition for PagesFunction to resolve 'Cannot find name' error.
-type PagesFunction<Env = unknown> = (context: {
+// Fix for PagesFunction generic type issue by renaming to avoid potential conflicts
+type CFPagesFunction<Env = unknown> = (context: {
   request: Request;
   env: Env;
   params: Record<string, string | string[]>;
+  waitUntil: (promise: Promise<any>) => void;
 }) => Promise<Response>;
 
-export const onRequest: PagesFunction<Env> = async ({ request, env, params }) => {
+export const onRequest: CFPagesFunction<Env> = async (context) => {
+  const { request, env, params, waitUntil } = context;
   const url = new URL(request.url);
   const pathSegments = params.path as string[];
-
   const apiProvider = pathSegments[0];
+
+  // Handle logging requests
+  if (apiProvider === 'log' && pathSegments[1] === 'search' && request.method === 'POST') {
+    try {
+      const { user, query } = await request.json<{ user: { email: string }, query: string }>();
+      if (!user || !user.email || !query) {
+        return new Response('Missing user email or query for logging.', { status: 400 });
+      }
+      const key = `${user.email}:${new Date().toISOString()}`;
+      waitUntil(env.LOG_DB.put(key, query));
+      return new Response('Log successful.', { status: 200 });
+    } catch (error) {
+      console.error('Logging error:', error);
+      return new Response('Failed to log request.', { status: 500 });
+    }
+  }
 
   if (apiProvider === 'get-key') {
     const apiKey = env.API_KEY;
@@ -73,6 +96,20 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
   }
   
   const actualPath = pathSegments.slice(1).join('/');
+  const isLocationSearch = actualPath.includes('reference-data/locations');
+
+  // Caching for location lookups
+  // Fix for caches.default property not being found on CacheStorage type
+  const cache = await caches.open('default');
+  const cacheKey = new Request(url.toString(), request);
+  if (isLocationSearch && request.method === 'GET') {
+    const cachedResponse = await cache.match(cacheKey);
+    if (cachedResponse) {
+      console.log(`Cache HIT for: ${url.toString()}`);
+      return cachedResponse;
+    }
+    console.log(`Cache MISS for: ${url.toString()}`);
+  }
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.delete('host');
@@ -106,9 +143,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
       destinationUrl.search = url.search;
       targetUrl = destinationUrl.toString();
 
-      // Fix: Cast headers to Headers to use the .set() method, resolving 'Property 'set' does not exist on type 'HeadersInit'' error.
       (apiRequestOptions.headers as Headers).set('Authorization', `Bearer ${DUFFEL_API_KEY}`);
-      // Use the correct API version based on the endpoint being called
       const duffelVersion = actualPath.startsWith('stays/') ? 'beta' : 'v1';
       (apiRequestOptions.headers as Headers).set('Duffel-Version', duffelVersion);
     } else {
@@ -117,16 +152,23 @@ export const onRequest: PagesFunction<Env> = async ({ request, env, params }) =>
 
     const apiResponse = await fetch(targetUrl, apiRequestOptions);
     
-    // Create a new Headers object to make it mutable
     const responseHeaders = new Headers(apiResponse.headers);
-    // Important: Allow the client to access the response from any origin
     responseHeaders.set('Access-Control-Allow-Origin', '*');
 
-    return new Response(apiResponse.body, {
+    const responseToReturn = new Response(apiResponse.body, {
       status: apiResponse.status,
       statusText: apiResponse.statusText,
       headers: responseHeaders,
     });
+
+    // Cache the response if it's a successful location search
+    if (isLocationSearch && request.method === 'GET' && apiResponse.ok) {
+      const responseToCache = new Response(responseToReturn.clone().body, responseToReturn);
+      responseToCache.headers.set('Cache-Control', 's-maxage=86400'); // Cache for 1 day
+      waitUntil(cache.put(cacheKey, responseToCache));
+    }
+
+    return responseToReturn;
 
   } catch (error) {
     console.error(`Proxy error for ${apiProvider}:`, error);

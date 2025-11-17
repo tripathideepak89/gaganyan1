@@ -89,7 +89,7 @@ const searchHotelsFunctionDeclaration: FunctionDeclaration = {
 };
 
 
-export const initializeChat = async (): Promise<Chat | null> => {
+export const initializeChat = async (userLocation: { city: string } | null): Promise<Chat | null> => {
   let apiKey: string | undefined;
 
   try {
@@ -115,10 +115,7 @@ export const initializeChat = async (): Promise<Chat | null> => {
   
   const ai = new GoogleGenAI({ apiKey });
 
-  return ai.chats.create({
-      model: 'gemini-2.5-flash',
-      config: {
-        systemInstruction: `You are a friendly and helpful flight and hotel booking assistant. Your goal is to make finding flights and hotels easy and conversational.
+  let systemInstruction = `You are a friendly and helpful flight and hotel booking assistant. Your goal is to make finding flights and hotels easy and conversational.
 
 **Your Capabilities:**
 - You can search for one-way or round-trip flights.
@@ -143,7 +140,20 @@ export const initializeChat = async (): Promise<Chat | null> => {
 **Important Rules:**
 - **NEVER** make up flight or hotel information. Only use the data from the provided tools.
 - **DO NOT** retry a tool call with the exact same parameters if it fails. Ask the user for different information instead.
-- Today's date is ${new Date().toISOString().split('T')[0]}. Use this to calculate specific dates from relative terms like "tomorrow", "next week", and "next weekend". For "next weekend", assume the user means from the upcoming Saturday to the following Monday (a 2-night stay). For "this weekend", use the upcoming Saturday to Monday. If today is Saturday or Sunday, "this weekend" refers to the current one.`,
+- Today's date is ${new Date().toISOString().split('T')[0]}. Use this to calculate specific dates from relative terms like "tomorrow", "next week", and "next weekend". For "next weekend", assume the user means from the upcoming Saturday to the following Monday (a 2-night stay). For "this weekend", use the upcoming Saturday to Monday. If today is Saturday or Sunday, "this weekend" refers to the current one.`;
+
+  if (userLocation && userLocation.city) {
+    const userContextInstruction = `
+
+**User Context:**
+- The user's current location is approximately **${userLocation.city}**. Use this as the default departure location for flight searches or the location for hotel searches if the user doesn't specify one. For example, if they ask "find flights to LAX tomorrow", assume they mean from **${userLocation.city}**. Do not mention their location back to them unless it's relevant to resolve an ambiguity.`;
+    systemInstruction += userContextInstruction;
+  }
+
+  return ai.chats.create({
+      model: 'gemini-2.5-flash',
+      config: {
+        systemInstruction,
         tools: [{ functionDeclarations: [searchFlightsFunctionDeclaration, searchCityCodeFunctionDeclaration, searchHotelsFunctionDeclaration] }],
       },
     });
