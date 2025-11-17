@@ -7,7 +7,8 @@ import { searchFlights as searchFlightsDuffel, searchHotels as searchHotelsDuffe
 import ChatView from './components/ChatView';
 import FlightSearchForm from './components/FlightSearchForm';
 import HotelSearchForm from './components/HotelSearchForm';
-import { TravelBilliLogo, PaperAirplaneIcon, BuildingOfficeIcon, ChatBubbleLeftRightIcon } from './components/IconComponents';
+import LoginModal from './components/LoginModal';
+import { TravelBilliLogo, PaperAirplaneIcon, BuildingOfficeIcon, ChatBubbleLeftRightIcon, UserCircleIcon, ArrowRightOnRectangleIcon } from './components/IconComponents';
 
 const durationToMinutes = (duration: string): number => {
   const hoursMatch = duration.match(/(\d+)h/);
@@ -100,6 +101,10 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
 
+  // User state
+  const [currentUser, setCurrentUser] = useState<{name: string, email: string} | null>(null);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+
   // State for Flight Search Form
   const [tripType, setTripType] = useState<'roundtrip' | 'oneway'>('roundtrip');
   const [from, setFrom] = useState('');
@@ -119,6 +124,12 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const init = async () => {
+      // Check for logged in user
+      const storedUser = localStorage.getItem('travelbilli_user');
+      if (storedUser) {
+        setCurrentUser(JSON.parse(storedUser));
+      }
+
       const chat = await initializeChat();
       if (chat) {
         setChatInstance(chat);
@@ -137,6 +148,18 @@ const App: React.FC = () => {
     };
     init();
   }, []);
+
+  const handleLogin = (name: string, email: string) => {
+    const user = { name, email };
+    setCurrentUser(user);
+    localStorage.setItem('travelbilli_user', JSON.stringify(user));
+    setIsLoginModalOpen(false);
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('travelbilli_user');
+  };
 
   if (appStatus === 'initializing') {
     return (
@@ -372,9 +395,35 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen text-white">
       <header className="bg-gray-800 border-b border-gray-700 p-4 shadow-md">
-        <div className="flex items-center justify-center gap-x-3">
-          <TravelBilliLogo className="w-10 h-10 text-blue-300" />
-          <h1 className="text-xl font-bold text-center text-blue-300">travelbilli</h1>
+        <div className="flex items-center justify-between max-w-7xl mx-auto">
+          <div className="flex items-center justify-center gap-x-3">
+            <TravelBilliLogo className="w-10 h-10 text-blue-300" />
+            <h1 className="text-xl font-bold text-center text-blue-300">travelbilli</h1>
+          </div>
+          <div className="flex items-center gap-x-4">
+            {currentUser ? (
+              <>
+                <div className="flex items-center gap-x-2">
+                    <UserCircleIcon className="w-6 h-6 text-gray-400" />
+                    <span className="text-sm font-medium text-gray-300">{currentUser.name}</span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-x-1 text-sm text-gray-400 hover:text-white transition-colors"
+                >
+                  <ArrowRightOnRectangleIcon className="w-5 h-5" />
+                  Logout
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setIsLoginModalOpen(true)}
+                className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors duration-200 text-sm"
+              >
+                Login
+              </button>
+            )}
+          </div>
         </div>
       </header>
       
@@ -432,6 +481,13 @@ const App: React.FC = () => {
             />
         )}
       </main>
+      
+      {isLoginModalOpen && (
+        <LoginModal 
+            onLogin={handleLogin}
+            onClose={() => setIsLoginModalOpen(false)}
+        />
+      )}
     </div>
   );
 };

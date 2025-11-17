@@ -152,7 +152,7 @@ export const searchHotels = async (
                     rating: prop.star_rating ? parseInt(prop.star_rating, 10) : 0,
                     address,
                     price: parseFloat(rate.total_amount),
-                    bookingUrl: `https://www.google.com/search?q=${encodeURIComponent(prop.name)}+${encodeURIComponent(address.cityName)}`,
+                    bookingUrl: `https://www.google.com/travel/hotels/s?q=${encodeURIComponent(prop.name + ' ' + address.cityName)}&checkin=${checkInDate}&checkout=${checkOutDate}&adults=${adults}`,
                 };
         });
 

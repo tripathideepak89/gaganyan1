@@ -161,7 +161,7 @@ export const searchHotels = async (
               hotelId: hotel.hotelId, name: hotel.name,
               rating: hotel.rating ? parseInt(hotel.rating, 10) : 0,
               address: address, price: parseFloat(price.total),
-              bookingUrl: `https://www.google.com/search?q=${encodeURIComponent(hotel.name)}+${encodeURIComponent(address.cityName)}`,
+              bookingUrl: `https://www.google.com/travel/hotels/s?q=${encodeURIComponent(hotel.name + ' ' + address.cityName)}&checkin=${checkInDate}&checkout=${checkOutDate}&adults=${adults}`,
             };
         });
         
