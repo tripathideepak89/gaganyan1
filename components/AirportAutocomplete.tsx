@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { getSupabase } from '../services/supabaseClient';
 import { Airport } from '../types';
@@ -51,7 +52,8 @@ const AirportAutocomplete: React.FC<AirportAutocompleteProps> = ({ label, value,
         const { data, error } = await supabase
           .from('airports')
           .select('*')
-          .or(`name.ilike.%${query}%,municipality.ilike.%${query}%,iata_code.ilike.%${query}%,iso_country.ilike.%${query}%`)
+          // Updated query to use new column names: airport_name, city, country
+          .or(`airport_name.ilike.%${query}%,city.ilike.%${query}%,iata_code.ilike.%${query}%,country.ilike.%${query}%`)
           .not('iata_code', 'is', null) // Only want airports with IATA codes
           .limit(10);
 
@@ -87,8 +89,13 @@ const AirportAutocomplete: React.FC<AirportAutocompleteProps> = ({ label, value,
   };
 
   const handleSelect = (airport: Airport) => {
-    // Format: "City, Country (IATA)" - This gives the AI explicit context
-    const formattedValue = `${airport.municipality}, ${airport.iso_country} (${airport.iata_code})`;
+    // Format: "City, Country (IATA)"
+    // Note: trimming because CHAR(n) columns can sometimes have padding in some DBs, though Supabase often trims JSON responses.
+    const city = airport.city ? airport.city.trim() : '';
+    const country = airport.country ? airport.country.trim() : '';
+    const code = airport.iata_code ? airport.iata_code.trim() : '';
+    
+    const formattedValue = `${city}, ${country} (${code})`;
     setQuery(formattedValue);
     onChange(formattedValue);
     setShowSuggestions(false);
@@ -121,10 +128,10 @@ const AirportAutocomplete: React.FC<AirportAutocompleteProps> = ({ label, value,
                   className="px-4 py-2 hover:bg-gray-700 cursor-pointer text-sm text-gray-200 border-b border-gray-700 last:border-0"
                 >
                   <div className="font-semibold text-blue-300">
-                    {airport.municipality}, {airport.iso_country} ({airport.iata_code})
+                    {airport.city && airport.city.trim()}, {airport.country && airport.country.trim()} ({airport.iata_code && airport.iata_code.trim()})
                   </div>
                   <div className="text-xs text-gray-400">
-                    {airport.name}
+                    {airport.airport_name}
                   </div>
                 </li>
               ))}

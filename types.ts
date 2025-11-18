@@ -79,22 +79,20 @@ export interface ChatMessage {
 
 export interface Airport {
   id: number;
-  ident: string;
-  type: string;
-  name: string;
-  latitude_deg: number;
-  longitude_deg: number;
-  elevation_ft: number;
-  continent: string;
-  iso_country: string;
-  iso_region: string;
-  municipality: string;
-  scheduled_service: string;
   icao_code: string;
   iata_code: string;
-  gps_code: string;
-  local_code: string;
-  home_link: string;
-  wikipedia_link: string;
-  keywords: string;
+  airport_name: string;
+  city: string;
+  country: string;
+  latitude_degrees?: number;
+  latitude_minutes?: number;
+  latitude_seconds?: number;
+  latitude_direction?: string;
+  longitude_degrees?: number;
+  longitude_minutes?: number;
+  longitude_seconds?: number;
+  longitude_direction?: string;
+  altitude?: number;
+  latitude_decimal?: number;
+  longitude_decimal?: number;
 }
