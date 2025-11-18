@@ -9,6 +9,7 @@ interface Env {
   AMADEUS_API_SECRET: string;
   DUFFEL_API_KEY: string;
   LOG_DB: KVNamespace;
+  SUPABASE_ANON_KEY: string;
 }
 
 // A simple in-memory cache for the Amadeus token within the worker instance
@@ -97,6 +98,26 @@ export const onRequest: CFPagesFunction = async (context) => {
       });
     }
     return new Response(JSON.stringify({ apiKey }), {
+      status: 200,
+      headers: headers,
+    });
+  }
+
+  if (apiProvider === 'get-supabase-config') {
+    const supabaseKey = env.SUPABASE_ANON_KEY;
+    const headers = {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*'
+    };
+    
+    if (!supabaseKey) {
+        return new Response(JSON.stringify({ error: 'SUPABASE_ANON_KEY is not configured on the server.' }), {
+            status: 500,
+            headers: headers,
+        });
+    }
+
+    return new Response(JSON.stringify({ supabaseKey }), {
       status: 200,
       headers: headers,
     });

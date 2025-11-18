@@ -1,6 +1,5 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../services/supabaseClient';
+import { getSupabase } from '../services/supabaseClient';
 import { Airport } from '../types';
 
 interface AirportAutocompleteProps {
@@ -43,6 +42,12 @@ const AirportAutocomplete: React.FC<AirportAutocompleteProps> = ({ label, value,
 
       setIsLoading(true);
       try {
+        const supabase = await getSupabase();
+        if (!supabase) {
+            setSuggestions([]);
+            return;
+        }
+
         const { data, error } = await supabase
           .from('airports')
           .select('*')
