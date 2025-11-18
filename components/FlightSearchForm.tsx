@@ -1,5 +1,7 @@
+
 import React from 'react';
 import { PaperAirplaneIcon } from './IconComponents';
+import AirportAutocomplete from './AirportAutocomplete';
 
 interface FlightSearchFormProps {
     onSearch: (query: string) => void;
@@ -100,12 +102,20 @@ const FlightSearchForm: React.FC<FlightSearchFormProps> = ({
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                            <label htmlFor="from" className="block text-sm font-medium text-gray-300">From</label>
-                            <input type="text" id="from" value={from} onChange={e => setFrom(e.target.value)} placeholder="Country, city or airport" required className="mt-1 w-full bg-gray-700 text-white placeholder-gray-400 rounded-md p-3 border border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none transition duration-200" />
+                            <AirportAutocomplete 
+                                label="From"
+                                value={from}
+                                onChange={setFrom}
+                                placeholder="City or Airport (e.g. JFK)"
+                            />
                         </div>
                         <div>
-                            <label htmlFor="to" className="block text-sm font-medium text-gray-300">To</label>
-                            <input type="text" id="to" value={to} onChange={e => setTo(e.target.value)} placeholder="Country, city or airport" required className="mt-1 w-full bg-gray-700 text-white placeholder-gray-400 rounded-md p-3 border border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none transition duration-200" />
+                            <AirportAutocomplete 
+                                label="To"
+                                value={to}
+                                onChange={setTo}
+                                placeholder="City or Airport (e.g. London)"
+                            />
                         </div>
                     </div>
 

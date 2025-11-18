@@ -76,3 +76,25 @@ export interface ChatMessage {
   role: MessageRole;
   content: string | FlightOffer[] | Location[] | HotelOffer[];
 }
+
+export interface Airport {
+  id: number;
+  ident: string;
+  type: string;
+  name: string;
+  latitude_deg: number;
+  longitude_deg: number;
+  elevation_ft: number;
+  continent: string;
+  iso_country: string;
+  iso_region: string;
+  municipality: string;
+  scheduled_service: string;
+  icao_code: string;
+  iata_code: string;
+  gps_code: string;
+  local_code: string;
+  home_link: string;
+  wikipedia_link: string;
+  keywords: string;
+}
