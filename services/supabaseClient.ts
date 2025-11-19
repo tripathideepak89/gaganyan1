@@ -1,4 +1,5 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+
+import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 
 // Using the project URL provided
 const supabaseUrl = 'https://izzopcectovmtopdqrgu.supabase.co';
@@ -47,6 +48,39 @@ export const getSupabase = async (): Promise<SupabaseClient | null> => {
         return supabaseInstance;
     }
 
-    console.error('Supabase Anon Key is missing. Airport autocomplete will not work.');
+    console.error('Supabase Anon Key is missing. Auth and DB features will not work.');
     return null;
+};
+
+export const signInWithEmail = async (email: string, password: string) => {
+    const supabase = await getSupabase();
+    if (!supabase) throw new Error("Supabase client not initialized");
+    return supabase.auth.signInWithPassword({ email, password });
+};
+
+export const signUpWithEmail = async (email: string, password: string, fullName: string) => {
+    const supabase = await getSupabase();
+    if (!supabase) throw new Error("Supabase client not initialized");
+    return supabase.auth.signUp({
+        email,
+        password,
+        options: {
+            data: {
+                full_name: fullName,
+            }
+        }
+    });
+};
+
+export const signOut = async () => {
+    const supabase = await getSupabase();
+    if (!supabase) return;
+    return supabase.auth.signOut();
+};
+
+export const getCurrentUser = async (): Promise<User | null> => {
+    const supabase = await getSupabase();
+    if (!supabase) return null;
+    const { data: { user } } = await supabase.auth.getUser();
+    return user;
 };

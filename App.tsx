@@ -1,9 +1,11 @@
+
 import React, { useState, useEffect } from 'react';
 import { GenerateContentResponse, Chat } from '@google/genai';
 import { ChatMessage, MessageRole, FlightOffer, Location, HotelOffer } from './types';
 import { initializeChat } from './services/geminiService';
 import { searchFlights as searchFlightsAmadeus, searchCityCode, searchHotels as searchHotelsAmadeus, reverseGeocode } from './services/amadeusService';
 import { searchFlights as searchFlightsDuffel, searchHotels as searchHotelsDuffel } from './services/duffelService';
+import { getSupabase, signOut } from './services/supabaseClient';
 import ChatView from './components/ChatView';
 import FlightSearchForm from './components/FlightSearchForm';
 import HotelSearchForm from './components/HotelSearchForm';
@@ -101,8 +103,8 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
 
-  // User state
-  const [currentUser, setCurrentUser] = useState<{name: string, email: string} | null>(null);
+  // User state (Supabase User)
+  const [currentUser, setCurrentUser] = useState<any | null>(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [userLocation, setUserLocation] = useState<{ city: string } | null>(null);
 
@@ -125,10 +127,17 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const init = async () => {
-      // User and Location logic
-      const storedUser = localStorage.getItem('travelbilli_user');
-      if (storedUser) {
-        setCurrentUser(JSON.parse(storedUser));
+      // Initialize Supabase Auth Listener
+      const supabase = await getSupabase();
+      if (supabase) {
+        // Check current session
+        const { data: { session } } = await supabase.auth.getSession();
+        setCurrentUser(session?.user ?? null);
+
+        // Listen for changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+          setCurrentUser(session?.user ?? null);
+        });
       }
 
       const initializeAndLoadChat = async (location: { city: string } | null) => {
@@ -177,24 +186,31 @@ const App: React.FC = () => {
     init();
   }, []);
 
-  const handleLogin = (name: string, email: string) => {
-    const user = { name, email };
+  const handleLoginSuccess = (user: any) => {
     setCurrentUser(user);
-    localStorage.setItem('travelbilli_user', JSON.stringify(user));
     setIsLoginModalOpen(false);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await signOut();
     setCurrentUser(null);
-    localStorage.removeItem('travelbilli_user');
   };
 
   const logSearch = async (query: string) => {
     if (currentUser && currentUser.email) {
       try {
+        // Fetch Supabase to get the current session token
+        const supabase = await getSupabase();
+        const { data: { session } } = await supabase?.auth.getSession() || { data: { session: null } };
+        const token = session?.access_token;
+
         await fetch('/api/log/search', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            // Send JWT for backend verification
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
           body: JSON.stringify({ user: { email: currentUser.email }, query }),
         });
       } catch (error) {
@@ -456,7 +472,9 @@ const App: React.FC = () => {
               <>
                 <div className="flex items-center gap-x-2">
                     <UserCircleIcon className="w-6 h-6 text-gray-400" />
-                    <span className="text-sm font-medium text-gray-300">{currentUser.name}</span>
+                    <span className="text-sm font-medium text-gray-300">
+                        {currentUser.user_metadata?.full_name || currentUser.email}
+                    </span>
                 </div>
                 <button
                   onClick={handleLogout}
@@ -471,7 +489,7 @@ const App: React.FC = () => {
                 onClick={() => setIsLoginModalOpen(true)}
                 className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors duration-200 text-sm"
               >
-                Login
+                Login / Sign Up
               </button>
             )}
           </div>
@@ -535,7 +553,7 @@ const App: React.FC = () => {
       
       {isLoginModalOpen && (
         <LoginModal 
-            onLogin={handleLogin}
+            onLogin={handleLoginSuccess}
             onClose={() => setIsLoginModalOpen(false)}
         />
       )}

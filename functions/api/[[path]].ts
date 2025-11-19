@@ -1,3 +1,4 @@
+
 // Fix for KVNamespace type not being found
 interface KVNamespace {
   put(key: string, value: string): Promise<void>;
@@ -10,6 +11,7 @@ interface Env {
   DUFFEL_API_KEY: string;
   LOG_DB: KVNamespace;
   SUPABASE_ANON_KEY: string;
+  SUPABASE_JWT_SECRET: string; // Required for verifying JWTs on the backend
 }
 
 // A simple in-memory cache for the Amadeus token within the worker instance
@@ -48,6 +50,51 @@ async function getAmadeusToken(apiKey: string, apiSecret: string): Promise<strin
   return amadeusTokenCache.value;
 }
 
+// Helper to verify Supabase JWT signature using HMAC SHA-256
+async function verifySupabaseToken(token: string, secret: string): Promise<any | null> {
+  try {
+    const [headerB64, payloadB64, signatureB64] = token.split('.');
+    if (!headerB64 || !payloadB64 || !signatureB64) return null;
+
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+
+    // Convert url-safe base64 to standard base64 for decoding if needed, 
+    // but crypto verify works on raw bytes.
+    // We need to verify that HMAC(key, header + "." + payload) === signature
+    
+    const dataToVerify = encoder.encode(`${headerB64}.${payloadB64}`);
+    
+    // Convert signature from base64url to Uint8Array
+    const signatureStr = signatureB64.replace(/-/g, '+').replace(/_/g, '/');
+    const signatureBin = atob(signatureStr);
+    const signatureBytes = new Uint8Array(signatureBin.length);
+    for (let i = 0; i < signatureBin.length; i++) signatureBytes[i] = signatureBin.charCodeAt(i);
+
+    const isValid = await crypto.subtle.verify(
+      'HMAC',
+      key,
+      signatureBytes,
+      dataToVerify
+    );
+
+    if (!isValid) return null;
+
+    // Decode payload
+    const payloadStr = atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/'));
+    return JSON.parse(payloadStr);
+  } catch (e) {
+    console.error("JWT Verification failed:", e);
+    return null;
+  }
+}
+
 // Fix for PagesFunction generic type issue by renaming to avoid potential conflicts
 type CFPagesFunction = (context: {
   request: Request;
@@ -63,21 +110,53 @@ export const onRequest: CFPagesFunction = async (context) => {
   const pathSegments = params.path as string[];
   const apiProvider = pathSegments[0];
 
-  // Handle logging requests
+  // Handle logging requests with JWT Verification
   if (apiProvider === 'log' && pathSegments[1] === 'search' && request.method === 'POST') {
     try {
       if (!env.LOG_DB) {
         console.warn('LOG_DB (KV Namespace) is not configured. Skipping search logging.');
         return new Response('Log skipped (KV binding missing).', { status: 200 });
       }
+
+      // Basic verification of JWT if Authorization header is present
+      const authHeader = request.headers.get('Authorization');
+      let userId = 'anonymous';
       
-      // Fix: The .json() method on Request does not accept a generic type argument. Cast the result instead.
-      const { user, query } = await request.json() as { user: { email: string }, query: string };
-      if (!user || !user.email || !query) {
-        return new Response('Missing user email or query for logging.', { status: 400 });
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+          const token = authHeader.substring(7);
+          if (env.SUPABASE_JWT_SECRET) {
+              const payload = await verifySupabaseToken(token, env.SUPABASE_JWT_SECRET);
+              if (payload && payload.sub) {
+                  userId = payload.sub; // The Supabase User ID (UUID)
+                  // Check expiration
+                  if (payload.exp && payload.exp < Date.now() / 1000) {
+                      return new Response('Token expired', { status: 401 });
+                  }
+              } else {
+                  return new Response('Invalid token signature', { status: 401 });
+              }
+          } else {
+               console.warn('SUPABASE_JWT_SECRET not configured. Skipping JWT verification.');
+          }
       }
-      const key = `${user.email}:${new Date().toISOString()}`;
-      waitUntil(env.LOG_DB.put(key, query));
+
+      const { user, query } = await request.json() as { user: { email: string }, query: string };
+      if (!query) {
+        return new Response('Missing query.', { status: 400 });
+      }
+      
+      // Use the verified User ID in the log key if authenticated
+      const key = `search:${userId}:${new Date().toISOString()}`;
+      
+      // Store payload
+      const logEntry = JSON.stringify({
+          userEmail: user?.email || 'unknown',
+          userId: userId,
+          query,
+          timestamp: new Date().toISOString()
+      });
+
+      waitUntil(env.LOG_DB.put(key, logEntry));
       return new Response('Log successful.', { status: 200 });
     } catch (error) {
       console.error('Logging error:', error);
