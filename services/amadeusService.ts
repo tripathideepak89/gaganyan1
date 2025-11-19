@@ -38,8 +38,8 @@ export const searchFlights = async (
   
   try {
     const params = new URLSearchParams({
-      originLocationCode: origin,
-      destinationLocationCode: destination,
+      originLocationCode: origin.toUpperCase(),
+      destinationLocationCode: destination.toUpperCase(),
       departureDate: departureDate,
       adults: adults.toString(),
       currencyCode: 'USD',
@@ -53,8 +53,9 @@ export const searchFlights = async (
     const response = await fetch(targetUrl);
 
     if (!response.ok) {
-      console.error('Amadeus API Error Response:', await response.text());
-      throw new Error(`API call failed with status: ${response.status}`);
+      const errorText = await response.text();
+      console.error('Amadeus API Error Response:', errorText);
+      throw new Error(`Amadeus API call failed: ${response.status} - ${errorText}`);
     }
     
     const data = await response.json();
@@ -96,7 +97,7 @@ export const searchFlights = async (
     return flightOffers;
   } catch (error) {
     console.error(`Error in searchFlights:`, error);
-    return [];
+    throw error; // Re-throw to allow App.tsx to show the error
   }
 };
 

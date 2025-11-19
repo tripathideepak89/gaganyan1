@@ -1,5 +1,7 @@
+
 import React from 'react';
 import { BuildingOfficeIcon } from './IconComponents';
+import HotelAutocomplete from './HotelAutocomplete';
 
 interface HotelSearchFormProps {
     onSearch: (query: string) => void;
@@ -40,8 +42,12 @@ const HotelSearchForm: React.FC<HotelSearchFormProps> = ({
             <div className="max-w-4xl mx-auto bg-gray-800 p-8 rounded-lg border border-gray-700">
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div>
-                        <label htmlFor="destination" className="block text-sm font-medium text-gray-300">Where do you want to go?</label>
-                        <input type="text" id="destination" value={destination} onChange={e => setDestination(e.target.value)} placeholder="Country, city or hotel name" required className="mt-1 w-full bg-gray-700 text-white placeholder-gray-400 rounded-md p-3 border border-gray-600 focus:ring-2 focus:ring-blue-500 focus:outline-none transition duration-200" />
+                        <HotelAutocomplete 
+                            label="Where do you want to go?"
+                            value={destination}
+                            onChange={setDestination}
+                            placeholder="Country, city or hotel name"
+                        />
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

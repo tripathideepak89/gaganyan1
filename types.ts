@@ -1,4 +1,5 @@
 
+
 export enum MessageRole {
   USER = 'user',
   MODEL = 'model',
@@ -95,4 +96,13 @@ export interface Airport {
   altitude?: number;
   latitude_decimal?: number;
   longitude_decimal?: number;
+}
+
+export interface HotelDatabaseEntry {
+  id: number;
+  hotel_name: string;
+  city: string | null;
+  country_code: string | null;
+  country_name: string | null;
+  nearest_airport_code: string | null;
 }

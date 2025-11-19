@@ -17,11 +17,16 @@ export const searchFlights = async (
     slices.push({ origin: destination, destination: origin, departure_date: returnDate });
   }
 
-  const passengers: { type: 'adult' | 'child', age?: number }[] = [];
+  const passengers: { type?: 'adult' | 'child', age?: number }[] = [];
   for (let i = 0; i < adults; i++) passengers.push({ type: 'adult' });
   for (let i = 0; i < children; i++) {
-    const age = childAges && childAges[i] ? childAges[i] : 6;
-    passengers.push({ type: 'child', age });
+    // Duffel prefers either type OR age. If age is known, send age.
+    const age = childAges && childAges[i] !== undefined ? childAges[i] : undefined;
+    if (age !== undefined) {
+        passengers.push({ age });
+    } else {
+        passengers.push({ type: 'child' });
+    }
   }
 
   const requestBody = { data: { slices, passengers, cabin_class: 'economy' } };

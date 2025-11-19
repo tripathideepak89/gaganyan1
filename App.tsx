@@ -263,7 +263,14 @@ const App: React.FC = () => {
                 if (fc.name === 'searchFlights') {
                     const { origin, destination, departureDate, adults, children, returnDate, childAges } = fc.args;
                     const numAdults = typeof adults === 'number' && adults > 0 ? adults : 1;
-                    const numChildren = typeof children === 'number' && children >= 0 ? children : 0;
+                    
+                    // Improve inference of children count.
+                    // Sometimes the model identifies childAges but misses the children count.
+                    let numChildren = typeof children === 'number' && children >= 0 ? children : 0;
+                    if (numChildren === 0 && Array.isArray(childAges) && childAges.length > 0) {
+                        numChildren = childAges.length;
+                    }
+
                     const systemMessage = `Searching flights from ${origin} to ${destination} via all providers...`;
                     setMessages((prev) => [...prev, { id: Date.now().toString(), role: MessageRole.SYSTEM, content: systemMessage }]);
                     
