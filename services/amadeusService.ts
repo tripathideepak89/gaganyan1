@@ -1,3 +1,4 @@
+
 import { FlightOffer, Location, FlightSegment, Itinerary, HotelOffer, HotelAddress } from '../types';
 import { getAirlineBookingUrl, formatISODuration } from './utils';
 
@@ -55,6 +56,9 @@ export const searchFlights = async (
     if (!response.ok) {
       const errorText = await response.text();
       console.error('Amadeus API Error Response:', errorText);
+      // If 400 (Bad Request), it typically means no flights for the route/params or a validation error.
+      // Return empty array to allow the app to continue smoothly.
+      if (response.status === 400) return [];
       throw new Error(`Amadeus API call failed: ${response.status} - ${errorText}`);
     }
     

@@ -90,7 +90,6 @@ const AirportAutocomplete: React.FC<AirportAutocompleteProps> = ({ label, value,
 
   const handleSelect = (airport: Airport) => {
     // Format: "City, Country (IATA)"
-    // Note: trimming because CHAR(n) columns can sometimes have padding in some DBs, though Supabase often trims JSON responses.
     const city = airport.city ? airport.city.trim() : '';
     const country = airport.country ? airport.country.trim() : '';
     const code = airport.iata_code ? airport.iata_code.trim() : '';

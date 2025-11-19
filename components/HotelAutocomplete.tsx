@@ -130,6 +130,7 @@ const HotelAutocomplete: React.FC<HotelAutocompleteProps> = ({ label, value, onC
                   </div>
                   <div className="text-xs text-gray-400">
                      {[hotel.city, hotel.country_name].filter(Boolean).join(', ')}
+                     {hotel.nearest_airport_code ? ` • Near ${hotel.nearest_airport_code}` : ''}
                   </div>
                 </li>
               ))}

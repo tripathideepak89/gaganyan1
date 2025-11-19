@@ -1,3 +1,4 @@
+
 import { FlightOffer, FlightSegment, Itinerary, HotelOffer, HotelAddress } from '../types';
 import { getAirlineBookingUrl, formatISODuration } from './utils';
 
@@ -23,7 +24,8 @@ export const searchFlights = async (
     // Duffel prefers either type OR age. If age is known, send age.
     const age = childAges && childAges[i] !== undefined ? childAges[i] : undefined;
     if (age !== undefined) {
-        passengers.push({ age });
+        // Ensure age is an integer
+        passengers.push({ age: Math.floor(age) });
     } else {
         passengers.push({ type: 'child' });
     }
