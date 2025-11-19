@@ -61,13 +61,20 @@ export const signInWithEmail = async (email: string, password: string) => {
 export const signUpWithEmail = async (email: string, password: string, fullName: string) => {
     const supabase = await getSupabase();
     if (!supabase) throw new Error("Supabase client not initialized");
+    
+    // Determine the URL to redirect to after email confirmation.
+    // In browser environments, use the current origin (e.g., https://your-app.pages.dev)
+    // Fallback to localhost if window is undefined (though this runs on client)
+    const redirectTo = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+
     return supabase.auth.signUp({
         email,
         password,
         options: {
             data: {
                 full_name: fullName,
-            }
+            },
+            emailRedirectTo: redirectTo,
         }
     });
 };
