@@ -29,12 +29,38 @@ const fetchWithDedupe = async (url: string): Promise<Response> => {
 export const searchCityCode = async (keyword: string): Promise<Location[]> => {
   console.log(`Searching for city code with keyword: ${keyword}`);
   try {
-    const targetUrl = `${AMADEUS_PROXY_URL}/v1/reference-data/locations?subType=CITY,AIRPORT&keyword=${encodeURIComponent(keyword.toUpperCase())}`;
+    let searchTerm = keyword;
+    
+    // Extract IATA code if present in parentheses (e.g., "City, Country (ABC)")
+    const iataMatch = keyword.match(/\(([A-Z]{3})\)/i);
+    if (iataMatch) {
+        searchTerm = iataMatch[1];
+    } else {
+        // Sanitize: remove special characters that Amadeus dislikes (like commas)
+        // Keep letters, numbers, spaces, and hyphens.
+        searchTerm = keyword.replace(/[^a-zA-Z0-9\s-]/g, ' ').trim();
+    }
+    
+    // Ensure we don't send an empty string or just whitespace
+    if (!searchTerm || searchTerm.length < 2) {
+         console.warn(`Search term "${searchTerm}" is too short.`);
+         return [];
+    }
+
+    const targetUrl = `${AMADEUS_PROXY_URL}/v1/reference-data/locations?subType=CITY,AIRPORT&keyword=${encodeURIComponent(searchTerm.toUpperCase())}`;
     
     // Use deduplicated fetch
     const response = await fetchWithDedupe(targetUrl);
 
-    if (!response.ok) throw new Error(`API call failed with status: ${response.status}`);
+    if (!response.ok) {
+        // If it's a 400, it might be an invalid format we didn't catch, or just Amadeus being picky.
+        // Return empty array instead of throwing to prevent crashing the chat flow.
+        if (response.status === 400) {
+            console.warn(`Amadeus API returned 400 for keyword "${searchTerm}".`);
+            return [];
+        }
+        throw new Error(`API call failed with status: ${response.status}`);
+    }
     
     const data = await response.json();
     const locations: Location[] = data.data.map((loc: any) => ({
@@ -222,7 +248,10 @@ export const reverseGeocode = async (latitude: number, longitude: number): Promi
         const response = await fetchWithDedupe(targetUrl);
 
         if (!response.ok) {
-            console.error('Amadeus Reverse Geocode API Error Response:', await response.text());
+            const errorText = await response.text();
+            console.error('Amadeus Reverse Geocode API Error Response:', errorText);
+            // If 404, it might mean no location found in radius, return null gracefully.
+            if (response.status === 404) return null;
             throw new Error(`Failed to reverse geocode with status: ${response.status}`);
         }
 

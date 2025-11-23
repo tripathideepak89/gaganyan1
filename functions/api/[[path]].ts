@@ -1,6 +1,4 @@
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-
 // Fix for KVNamespace type not being found
 interface KVNamespace {
   put(key: string, value: string): Promise<void>;
@@ -93,38 +91,56 @@ async function verifySupabaseToken(token: string, secret: string): Promise<any |
   }
 }
 
-// --- DATABASE CACHING HELPERS ---
+// --- DATABASE CACHING HELPERS (Using native fetch to avoid @supabase/supabase-js dependency in Worker) ---
 
-async function getCachedResponse(supabase: SupabaseClient, key: string): Promise<any | null> {
+async function getCachedResponse(supabaseUrl: string, supabaseKey: string, key: string): Promise<any | null> {
   try {
-    const { data, error } = await supabase
-      .from('api_cache')
-      .select('response, expires_at')
-      .eq('key', key)
-      .single();
+    // Supabase REST: GET /rest/v1/api_cache?key=eq.KEY&select=response,expires_at
+    const url = `${supabaseUrl}/rest/v1/api_cache?key=eq.${encodeURIComponent(key)}&select=response,expires_at&limit=1`;
+    const response = await fetch(url, {
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Accept': 'application/json'
+      }
+    });
 
-    if (error || !data) return null;
+    if (!response.ok) return null;
+    const data = await response.json(); // Type: any[]
 
-    if (new Date(data.expires_at) > new Date()) {
-      console.log(`[DB Cache Hit] ${key}`);
-      return data.response;
-    } else {
-       // Clean up expired (async)
-       console.log(`[DB Cache Expired] ${key}`);
-       return null;
+    if (Array.isArray(data) && data.length > 0) {
+       const entry = data[0];
+       if (new Date(entry.expires_at) > new Date()) {
+           console.log(`[DB Cache Hit] ${key}`);
+           return entry.response;
+       } else {
+           console.log(`[DB Cache Expired] ${key}`);
+           // Optional: Trigger delete/cleanup
+       }
     }
+    return null;
   } catch (err) {
     console.warn('Cache read error:', err);
     return null;
   }
 }
 
-async function setCachedResponse(supabase: SupabaseClient, key: string, response: any, ttlSeconds: number) {
+async function setCachedResponse(supabaseUrl: string, supabaseKey: string, key: string, response: any, ttlSeconds: number) {
   try {
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
-    await supabase
-      .from('api_cache')
-      .upsert({ key, response, expires_at: expiresAt }, { onConflict: 'key' });
+    const body = JSON.stringify({ key, response, expires_at: expiresAt });
+    
+    // Supabase REST: POST /rest/v1/api_cache with upsert
+    await fetch(`${supabaseUrl}/rest/v1/api_cache`, {
+        method: 'POST',
+        headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'resolution=merge-duplicates'
+        },
+        body
+    });
   } catch (err) {
     console.warn('Cache write error:', err);
   }
@@ -145,12 +161,9 @@ export const onRequest: CFPagesFunction = async (context) => {
   const pathSegments = params.path as string[];
   const apiProvider = pathSegments[0];
 
-  // Initialize Supabase Client for Backend Operations
-  // Use Service Role Key if available for backend-to-backend cache access, otherwise Anon Key
+  // Supabase Configuration for Backend Ops
   const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY;
-  const supabase = env.SUPABASE_URL && supabaseKey 
-    ? createClient(env.SUPABASE_URL, supabaseKey) 
-    : null;
+  const useCache = !!(env.SUPABASE_URL && supabaseKey);
 
   // Handle logging requests
   if (apiProvider === 'log' && pathSegments[1] === 'search' && request.method === 'POST') {
@@ -213,8 +226,6 @@ export const onRequest: CFPagesFunction = async (context) => {
   
   const actualPath = pathSegments.slice(1).join('/');
   
-  // Determine if cacheable
-  // We use the full URL search params as part of the key
   const isGetRequest = request.method === 'GET';
   const isPostSearch = request.method === 'POST' && (actualPath.includes('search') || actualPath.includes('offer_requests'));
   
@@ -229,9 +240,6 @@ export const onRequest: CFPagesFunction = async (context) => {
   }
   // 2. Flight Search - Cache for 30 minutes
   else if ((isGetRequest && actualPath.includes('shopping/flight-offers')) || (isPostSearch && actualPath.includes('air/offer_requests'))) {
-      // For POST requests, we'd need to hash the body to make a key, 
-      // but for now we'll focus on GET params for Amadeus.
-      // Duffel uses POST, so we'll skip caching Duffel POSTs for simplicity in this V1 unless we read the body.
       if (isGetRequest) {
           cacheKey = `amadeus:flights:${url.searchParams.toString()}`;
           ttl = 60 * 30; 
@@ -246,8 +254,8 @@ export const onRequest: CFPagesFunction = async (context) => {
   }
 
   // TRY READ CACHE
-  if (supabase && cacheKey) {
-      const cachedData = await getCachedResponse(supabase, cacheKey);
+  if (useCache && cacheKey) {
+      const cachedData = await getCachedResponse(env.SUPABASE_URL, supabaseKey, cacheKey);
       if (cachedData) {
           return new Response(JSON.stringify(cachedData), {
               status: 200,
@@ -289,7 +297,6 @@ export const onRequest: CFPagesFunction = async (context) => {
       destinationUrl.search = url.search;
       targetUrl = destinationUrl.toString();
       (apiRequestOptions.headers as Headers).set('Authorization', `Bearer ${DUFFEL_API_KEY}`);
-      // 'v1' is deprecated. Switching to 'beta' which is commonly used for Duffel APIs now.
       (apiRequestOptions.headers as Headers).set('Duffel-Version', 'beta');
     } else {
       return new Response('Invalid API provider.', { status: 400 });
@@ -305,8 +312,8 @@ export const onRequest: CFPagesFunction = async (context) => {
     const responseData = await apiResponse.clone().json().catch(() => null);
 
     // WRITE CACHE (Async)
-    if (supabase && cacheKey && apiResponse.ok && responseData && ttl > 0) {
-        waitUntil(setCachedResponse(supabase, cacheKey, responseData, ttl));
+    if (useCache && cacheKey && apiResponse.ok && responseData && ttl > 0) {
+        waitUntil(setCachedResponse(env.SUPABASE_URL, supabaseKey, cacheKey, responseData, ttl));
     }
 
     // Return original body
