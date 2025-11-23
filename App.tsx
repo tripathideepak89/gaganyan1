@@ -4,7 +4,7 @@ import { GenerateContentResponse, Chat } from '@google/genai';
 import { ChatMessage, MessageRole, FlightOffer, Location, HotelOffer } from './types';
 import { initializeChat } from './services/geminiService';
 import { searchFlights as searchFlightsAmadeus, searchCityCode, searchHotels as searchHotelsAmadeus, reverseGeocode } from './services/amadeusService';
-import { searchFlights as searchFlightsDuffel, searchHotels as searchHotelsDuffel } from './services/duffelService';
+import { searchFlights as searchFlightsDuffel } from './services/duffelService';
 import { getSupabase, signOut } from './services/supabaseClient';
 import ChatView from './components/ChatView';
 import FlightSearchForm from './components/FlightSearchForm';
@@ -59,34 +59,6 @@ const calculateBestScores = (offers: FlightOffer[]): FlightOffer[] => {
         ) * 100;
 
         const score = 100 - penalty;
-        return { ...offer, score };
-    });
-};
-
-const calculateHotelScores = (offers: HotelOffer[]): HotelOffer[] => {
-    if (offers.length < 2) return offers.map(o => ({ ...o, score: 100 }));
-
-    const prices = offers.map(o => o.price);
-    const ratings = offers.map(o => o.rating);
-
-    const minPrice = Math.min(...prices);
-    const maxPrice = Math.max(...prices);
-    const minRating = Math.min(...ratings);
-    const maxRating = Math.max(...ratings);
-
-    const priceRange = maxPrice - minPrice;
-    const ratingRange = maxRating - minRating;
-
-    const weights = {
-        price: 0.4,
-        rating: 0.6,
-    };
-
-    return offers.map(offer => {
-        const normPrice = priceRange > 0 ? (offer.price - minPrice) / priceRange : 0;
-        const priceScore = 1 - normPrice;
-        const normRating = ratingRange > 0 ? (offer.rating - minRating) / ratingRange : 0;
-        const score = (weights.price * priceScore + weights.rating * normRating) * 100;
         return { ...offer, score };
     });
 };
@@ -332,61 +304,33 @@ const App: React.FC = () => {
                         setMessages((prev) => [...prev, { id: Date.now().toString() + '-flights', role: MessageRole.MODEL, content: flightOffersWithScores }]);
                     }
                 } else if (fc.name === 'searchHotels') {
-                    const { cityCode, checkInDate, checkOutDate, adults } = fc.args;
+                    const { cityCode, checkInDate, checkOutDate, adults, sortBy } = fc.args;
                     const numAdults = typeof adults === 'number' && adults > 0 ? adults : 2;
                     
                     const systemMessage = `Searching for hotels in ${cityCode}...`;
                     setMessages((prev) => [...prev, { id: Date.now().toString(), role: MessageRole.SYSTEM, content: systemMessage }]);
 
-                    // Fetch location details to verify city and get coordinates for Duffel
-                    const locations = await searchCityCode(cityCode as string);
-                    const location = locations.find(l => l.iataCode === cityCode) || locations[0];
-
                     let allHotelOffers: HotelOffer[] = [];
                     
-                    const promises: Promise<HotelOffer[]>[] = [];
-                    
-                    // Amadeus Search
-                    promises.push(
-                        searchHotelsAmadeus(cityCode as string, checkInDate as string, checkOutDate as string, numAdults)
-                        .catch(error => {
-                            console.error("Amadeus hotel search failed", error);
-                            return [];
-                        })
-                    );
-
-                    // Duffel Search (requires lat/long)
-                    if (location && location.geoCode) {
-                         promises.push(
-                            searchHotelsDuffel(location.geoCode.latitude, location.geoCode.longitude, checkInDate as string, checkOutDate as string, numAdults)
-                            .catch(error => {
-                                console.error("Duffel hotel search failed", error);
-                                return [];
-                            })
-                         );
-                    }
-
                     try {
-                         const results = await Promise.all(promises);
-                         allHotelOffers = results.flat();
+                        // Use the new aggregated backend service
+                        allHotelOffers = await searchHotelsAmadeus(
+                            cityCode as string, 
+                            checkInDate as string, 
+                            checkOutDate as string, 
+                            numAdults,
+                            sortBy as string
+                        );
                     } catch (error) {
                         console.error("Hotel search failed", error);
                     }
 
-                    // Simple deduplication based on hotel name and city
-                    const uniqueHotelOffers = Array.from(new Map(allHotelOffers.map(offer => {
-                        const key = `${offer.name.toLowerCase().trim()}-${offer.address.cityName.toLowerCase().trim()}`;
-                        return [key, offer];
-                    })).values());
-                    
-                    const hotelOffersWithScores = calculateHotelScores(uniqueHotelOffers);
-                    hotelOffersWithScores.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-                    
-                    let messageForModel = uniqueHotelOffers.length > 0 
-                        ? `Found ${uniqueHotelOffers.length} hotels.` 
+                    // Backend handles aggregation and scoring
+                    let messageForModel = allHotelOffers.length > 0 
+                        ? `Found ${allHotelOffers.length} hotels.` 
                         : "No hotels found.";
 
-                    if (uniqueHotelOffers.length === 0 && checkInDate) {
+                    if (allHotelOffers.length === 0 && checkInDate) {
                         const today = new Date();
                         const elevenMonthsFromNow = new Date(today.getFullYear(), today.getMonth() + 11, today.getDate());
                         const checkIn = new Date(checkInDate as string);
@@ -397,13 +341,13 @@ const App: React.FC = () => {
                     }
                     
                     const summaryResult = {
-                        count: uniqueHotelOffers.length,
+                        count: allHotelOffers.length,
                         message: messageForModel,
                     };
                     functionResponseParts.push({ functionResponse: { name: fc.name, response: { result: summaryResult }}});
                     
-                    if (uniqueHotelOffers.length > 0) {
-                        setMessages((prev) => [...prev, { id: Date.now().toString() + '-hotels', role: MessageRole.MODEL, content: hotelOffersWithScores }]);
+                    if (allHotelOffers.length > 0) {
+                        setMessages((prev) => [...prev, { id: Date.now().toString() + '-hotels', role: MessageRole.MODEL, content: allHotelOffers }]);
                     }
                 } else if (fc.name === 'searchCityCode') {
                     const { keyword } = fc.args;

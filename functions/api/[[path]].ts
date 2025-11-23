@@ -65,10 +65,6 @@ async function verifySupabaseToken(token: string, secret: string): Promise<any |
       ['verify']
     );
 
-    // Convert url-safe base64 to standard base64 for decoding if needed, 
-    // but crypto verify works on raw bytes.
-    // We need to verify that HMAC(key, header + "." + payload) === signature
-    
     const dataToVerify = encoder.encode(`${headerB64}.${payloadB64}`);
     
     // Convert signature from base64url to Uint8Array
@@ -110,6 +106,126 @@ export const onRequest: CFPagesFunction = async (context) => {
   const pathSegments = params.path as string[];
   const apiProvider = pathSegments[0];
 
+  // Hotel Aggregation Endpoint
+  if (apiProvider === 'hotels' && pathSegments[1] === 'search') {
+    const cityCode = url.searchParams.get('cityCode');
+    const checkIn = url.searchParams.get('checkIn');
+    const checkOut = url.searchParams.get('checkOut');
+    const adults = parseInt(url.searchParams.get('adults') || '2', 10);
+    const sortBy = url.searchParams.get('sortBy') || 'recommended';
+
+    if (!cityCode || !checkIn || !checkOut) {
+      return new Response(JSON.stringify({ error: 'Missing required parameters: cityCode, checkIn, checkOut' }), { 
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    try {
+      const { AMADEUS_API_KEY, AMADEUS_API_SECRET } = env;
+      const token = await getAmadeusToken(AMADEUS_API_KEY, AMADEUS_API_SECRET);
+
+      // 1. Get Hotels by City
+      const listParams = new URLSearchParams({ cityCode, radius: '20', radiusUnit: 'KM' });
+      const listUrl = `https://test.api.amadeus.com/v1/reference-data/locations/hotels/by-city?${listParams.toString()}`;
+      
+      const listResp = await fetch(listUrl, { headers: { Authorization: `Bearer ${token}` } });
+      if (!listResp.ok) {
+         return new Response(await listResp.text(), { status: listResp.status });
+      }
+      
+      const listData = await listResp.json();
+      if (!listData.data || listData.data.length === 0) {
+        return new Response(JSON.stringify({ data: [] }), { headers: { 'Content-Type': 'application/json' } });
+      }
+
+      // Limit to top 50 hotels to avoid URI length issues
+      const hotelIds = listData.data.slice(0, 50).map((h: any) => h.hotelId).join(',');
+
+      // 2. Get Offers
+      const offersParams = new URLSearchParams({
+        hotelIds, checkInDate: checkIn, checkOutDate: checkOut, adults: adults.toString(),
+        currency: 'USD', paymentPolicy: 'NONE', bestRateOnly: 'true', view: 'LIGHT'
+      });
+      const offersUrl = `https://test.api.amadeus.com/v3/shopping/hotel-offers?${offersParams.toString()}`;
+      
+      const offersResp = await fetch(offersUrl, { headers: { Authorization: `Bearer ${token}` } });
+      if (!offersResp.ok) {
+         return new Response(await offersResp.text(), { status: offersResp.status });
+      }
+
+      const offersData = await offersResp.json();
+      let offers = offersData.data || [];
+      
+      // Filter valid offers
+      offers = offers.filter((o: any) => o.available && o.hotel && o.offers?.[0]?.price);
+
+      // Map to internal format
+      let mappedOffers = offers.map((offer: any) => {
+        const price = parseFloat(offer.offers[0].price.total);
+        const rating = offer.hotel.rating ? parseInt(offer.hotel.rating, 10) : 0;
+        return {
+          hotelId: offer.hotel.hotelId,
+          name: offer.hotel.name,
+          rating,
+          address: {
+            lines: offer.hotel.address?.lines || [],
+            cityName: offer.hotel.address?.cityName || '',
+            postalCode: offer.hotel.address?.postalCode || '',
+            countryCode: offer.hotel.address?.countryCode || '',
+          },
+          price,
+          bookingUrl: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(offer.hotel.name + ', ' + offer.hotel.address?.cityName)}&checkin=${checkIn}&checkout=${checkOut}&group_adults=${adults}&sb=1`,
+          score: 0 
+        };
+      });
+
+      // Sorting Logic
+      if (sortBy === 'price_asc') {
+        mappedOffers.sort((a: any, b: any) => a.price - b.price);
+      } else if (sortBy === 'price_desc') {
+        mappedOffers.sort((a: any, b: any) => b.price - a.price);
+      } else {
+        // Recommended: Filter low rating and score
+        const minRating = 3;
+        mappedOffers = mappedOffers.filter((o: any) => o.rating >= minRating);
+
+        if (mappedOffers.length > 1) {
+            const prices = mappedOffers.map((o: any) => o.price);
+            const ratings = mappedOffers.map((o: any) => o.rating);
+            const minPrice = Math.min(...prices);
+            const maxPrice = Math.max(...prices);
+            const ratingRange = Math.max(...ratings) - Math.min(...ratings);
+            const priceRange = maxPrice - minPrice;
+
+            mappedOffers = mappedOffers.map((o: any) => {
+                const normPrice = priceRange > 0 ? (o.price - minPrice) / priceRange : 0;
+                const priceScore = 1 - normPrice;
+                const normRating = o.rating / 5; // Simple normalized rating
+                // Weighted score
+                const score = (0.4 * priceScore + 0.6 * normRating) * 100;
+                return { ...o, score };
+            });
+            mappedOffers.sort((a: any, b: any) => b.score - a.score);
+        }
+      }
+
+      return new Response(JSON.stringify({ data: mappedOffers }), { 
+        headers: { 
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+        } 
+      });
+
+    } catch (e: any) {
+      console.error('Hotel Search Error:', e);
+      return new Response(JSON.stringify({ error: e.message }), { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  }
+
   // Handle logging requests with JWT Verification
   if (apiProvider === 'log' && pathSegments[1] === 'search' && request.method === 'POST') {
     try {
@@ -118,7 +234,6 @@ export const onRequest: CFPagesFunction = async (context) => {
         return new Response('Log skipped (KV binding missing).', { status: 200 });
       }
 
-      // Basic verification of JWT if Authorization header is present
       const authHeader = request.headers.get('Authorization');
       let userId = 'anonymous';
       
@@ -127,16 +242,11 @@ export const onRequest: CFPagesFunction = async (context) => {
           if (env.SUPABASE_JWT_SECRET) {
               const payload = await verifySupabaseToken(token, env.SUPABASE_JWT_SECRET);
               if (payload && payload.sub) {
-                  userId = payload.sub; // The Supabase User ID (UUID)
-                  // Check expiration
+                  userId = payload.sub;
                   if (payload.exp && payload.exp < Date.now() / 1000) {
                       return new Response('Token expired', { status: 401 });
                   }
-              } else {
-                  return new Response('Invalid token signature', { status: 401 });
               }
-          } else {
-               console.warn('SUPABASE_JWT_SECRET not configured. Skipping JWT verification.');
           }
       }
 
@@ -145,10 +255,7 @@ export const onRequest: CFPagesFunction = async (context) => {
         return new Response('Missing query.', { status: 400 });
       }
       
-      // Use the verified User ID in the log key if authenticated
       const key = `search:${userId}:${new Date().toISOString()}`;
-      
-      // Store payload
       const logEntry = JSON.stringify({
           userEmail: user?.email || 'unknown',
           userId: userId,
@@ -191,7 +298,7 @@ export const onRequest: CFPagesFunction = async (context) => {
     
     if (!supabaseKey) {
         return new Response(JSON.stringify({ error: 'SUPABASE_ANON_KEY is not configured on the server.' }), {
-            status: 500,
+            status: 500, // Return 500 to indicate config error, but return JSON so client can see it
             headers: headers,
         });
     }
@@ -206,16 +313,13 @@ export const onRequest: CFPagesFunction = async (context) => {
   const isLocationSearch = actualPath.includes('reference-data/locations');
 
   // Caching for location lookups
-  // Fix for caches.default property not being found on CacheStorage type
   const cache = await caches.open('default');
   const cacheKey = new Request(url.toString(), request);
   if (isLocationSearch && request.method === 'GET') {
     const cachedResponse = await cache.match(cacheKey);
     if (cachedResponse) {
-      console.log(`Cache HIT for: ${url.toString()}`);
       return cachedResponse;
     }
-    console.log(`Cache MISS for: ${url.toString()}`);
   }
 
   const requestHeaders = new Headers(request.headers);
@@ -268,10 +372,9 @@ export const onRequest: CFPagesFunction = async (context) => {
       headers: responseHeaders,
     });
 
-    // Cache the response if it's a successful location search
     if (isLocationSearch && request.method === 'GET' && apiResponse.ok) {
       const responseToCache = new Response(responseToReturn.clone().body, responseToReturn);
-      responseToCache.headers.set('Cache-Control', 's-maxage=86400'); // Cache for 1 day
+      responseToCache.headers.set('Cache-Control', 's-maxage=86400');
       waitUntil(cache.put(cacheKey, responseToCache));
     }
 

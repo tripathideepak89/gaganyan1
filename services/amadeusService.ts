@@ -106,73 +106,26 @@ export const searchFlights = async (
 };
 
 export const searchHotels = async (
-    cityCode: string, checkInDate: string, checkOutDate: string, adults: number
+    cityCode: string, checkInDate: string, checkOutDate: string, adults: number, sortBy: string = 'recommended'
 ): Promise<HotelOffer[]> => {
-    console.log(`Searching for hotels in ${cityCode} from ${checkInDate} to ${checkOutDate} for ${adults} adults.`);
+    console.log(`Searching for hotels in ${cityCode} from ${checkInDate} to ${checkOutDate} for ${adults} adults (Sort: ${sortBy}).`);
     try {
-        // Step 1: Get hotel IDs for the given city
-        console.log(`Step 1: Fetching hotel list for city ${cityCode}...`);
-        const hotelListParams = new URLSearchParams({ cityCode, radius: '20', radiusUnit: 'KM' });
-        const hotelListTargetUrl = `${AMADEUS_PROXY_URL}/v1/reference-data/locations/hotels/by-city?${hotelListParams.toString()}`;
-        const hotelListResponse = await fetch(hotelListTargetUrl);
-
-        if (!hotelListResponse.ok) {
-            console.error('Amadeus Hotel List API Error Response:', await hotelListResponse.text());
-            throw new Error(`Failed to fetch hotel list with status: ${hotelListResponse.status}`);
-        }
-
-        const hotelListData = await hotelListResponse.json();
-        if (!hotelListData.data || hotelListData.data.length === 0) {
-            console.log(`No hotels found for city code ${cityCode}.`);
-            return [];
-        }
-
-        const hotelIds = hotelListData.data.slice(0, 50).map((hotel: any) => hotel.hotelId).join(',');
-        console.log(`Step 1 successful. Found ${hotelListData.data.length} hotels, using IDs for the first ${hotelIds.split(',').length}.`);
-
-        // Step 2: Get offers for the found hotel IDs
-        console.log(`Step 2: Fetching offers for hotel IDs...`);
-        const hotelOffersParams = new URLSearchParams({
-            hotelIds, checkInDate, checkOutDate, adults: adults.toString(),
-            currency: 'USD', paymentPolicy: 'NONE', bestRateOnly: 'true', view: 'LIGHT',
+        const params = new URLSearchParams({
+            cityCode, checkIn: checkInDate, checkOut: checkOutDate, adults: adults.toString(), sortBy
         });
-
-        const offersTargetUrl = `${AMADEUS_PROXY_URL}/v3/shopping/hotel-offers?${hotelOffersParams.toString()}`;
-        const response = await fetch(offersTargetUrl);
+        
+        const response = await fetch(`/api/hotels/search?${params.toString()}`);
 
         if (!response.ok) {
-            console.error('Amadeus Hotel Offers API Error Response:', await response.text());
-            throw new Error(`API call for hotel offers failed with status: ${response.status}`);
+            console.error('Hotel Search API Error Response:', await response.text());
+            throw new Error(`Failed to fetch hotel offers with status: ${response.status}`);
         }
 
         const data = await response.json();
-        if (!data.data || data.data.length === 0) {
-            console.log('No hotel offers found for the selected hotels.');
-            return [];
-        }
-
-        const hotelOffers: HotelOffer[] = data.data
-          .filter((offer: any) => offer.available && offer.hotel && offer.offers?.[0]?.price)
-          .map((offer: any): HotelOffer => {
-            const { hotel, offers } = offer;
-            const price = offers[0].price;
-            const address: HotelAddress = {
-              lines: hotel.address?.lines || [],
-              cityName: hotel.address?.cityName || '',
-              postalCode: hotel.address?.postalCode || '',
-              countryCode: hotel.address?.countryCode || '',
-            };
-            return {
-              hotelId: hotel.hotelId, name: hotel.name,
-              rating: hotel.rating ? parseInt(hotel.rating, 10) : 0,
-              address: address, price: parseFloat(price.total),
-              bookingUrl: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(hotel.name + ', ' + address.cityName)}&checkin=${checkInDate}&checkout=${checkOutDate}&group_adults=${adults}&sb=1`,
-            };
-        });
+        const offers = data.data || [];
         
-        console.log(`Found ${hotelOffers.length} hotel offers.`);
-        return hotelOffers;
-
+        console.log(`Found ${offers.length} hotel offers.`);
+        return offers;
     } catch (error) {
         console.error(`Error in searchHotels:`, error);
         return [];
@@ -191,8 +144,9 @@ export const reverseGeocode = async (latitude: number, longitude: number): Promi
         const response = await fetch(targetUrl);
 
         if (!response.ok) {
-            console.error('Amadeus Reverse Geocode API Error Response:', await response.text());
-            throw new Error(`Failed to reverse geocode with status: ${response.status}`);
+            // Log but don't throw, return null to handle gracefully
+            console.warn('Amadeus Reverse Geocode API returned status:', response.status);
+            return null;
         }
 
         const data = await response.json();

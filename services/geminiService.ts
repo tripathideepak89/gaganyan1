@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, FunctionDeclaration, Chat } from '@google/genai';
 
 const searchFlightsFunctionDeclaration: FunctionDeclaration = {
@@ -63,7 +64,7 @@ const searchCityCodeFunctionDeclaration: FunctionDeclaration = {
 
 const searchHotelsFunctionDeclaration: FunctionDeclaration = {
   name: 'searchHotels',
-  description: 'Searches for available hotels in a specific city for given dates. Note: This tool currently only supports searching for adult guests.',
+  description: 'Searches for available hotels in a specific city for given dates.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -83,6 +84,11 @@ const searchHotelsFunctionDeclaration: FunctionDeclaration = {
         type: Type.NUMBER,
         description: 'The number of adult guests.',
       },
+      sortBy: {
+        type: Type.STRING,
+        description: 'The sort order for the results.',
+        enum: ['price_asc', 'price_desc', 'recommended'],
+      }
     },
     required: ['cityCode', 'checkInDate', 'checkOutDate', 'adults'],
   },
