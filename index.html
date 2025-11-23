@@ -17,33 +17,6 @@
   }
 }
 </script>
-<style>
-  .travel-pattern {
-    background-image: url('https://images.unsplash.com/photo-1436491865332-7a61a109cc05?q=80&w=2074&auto=format&fit=crop');
-    background-size: cover;
-    background-position: center;
-    background-attachment: fixed;
-    position: relative;
-    z-index: 0;
-  }
-
-  .travel-pattern::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(17, 24, 39, 0.85); /* bg-gray-900 with 85% opacity */
-    z-index: 1;
-  }
-
-  /* Make sure content is on top of the overlay */
-  .travel-pattern > * {
-    position: relative;
-    z-index: 2;
-  }
-</style>
 </head>
   <body class="bg-gray-900">
     <div id="root"></div>
