@@ -287,20 +287,30 @@ const App: React.FC = () => {
                         numChildren = childAges.length;
                     }
 
-                    const systemMessage = `Searching flights from ${origin} to ${destination} via all providers...`;
+                    const validChildAges = Array.isArray(childAges) ? childAges : [];
+
+                    const systemMessage = `Searching flights from ${origin} to ${destination}...`;
                     setMessages((prev) => [...prev, { id: Date.now().toString(), role: MessageRole.SYSTEM, content: systemMessage }]);
                     
-                    const results = await Promise.allSettled([
-                        searchFlightsAmadeus(origin as string, destination as string, departureDate as string, numAdults, numChildren, returnDate as string | undefined),
-                        searchFlightsDuffel(origin as string, destination as string, departureDate as string, numAdults, numChildren, returnDate as string | undefined, childAges as number[] | undefined)
-                    ]);
-
                     let allFlightOffers: FlightOffer[] = [];
-                    results.forEach(result => {
-                        if (result.status === 'fulfilled' && result.value) {
-                            allFlightOffers.push(...result.value);
-                        }
-                    });
+                    
+                    try {
+                        const [amadeusResults, duffelResults] = await Promise.all([
+                            searchFlightsAmadeus(origin as string, destination as string, departureDate as string, numAdults, numChildren, returnDate as string | undefined)
+                                .catch(err => {
+                                    console.error("Amadeus flight search failed", err);
+                                    return [];
+                                }),
+                            searchFlightsDuffel(origin as string, destination as string, departureDate as string, numAdults, numChildren, returnDate as string | undefined, validChildAges)
+                                .catch(err => {
+                                    console.error("Duffel flight search failed", err);
+                                    return [];
+                                })
+                        ]);
+                        allFlightOffers = [...amadeusResults, ...duffelResults];
+                    } catch (error) {
+                        console.error("Flight search failed", error);
+                    }
 
                     const uniqueFlightOffers = Array.from(new Map(allFlightOffers.map(offer => {
                         const firstSegment = offer.itineraries[0]?.segments[0];
@@ -325,44 +335,43 @@ const App: React.FC = () => {
                     const { cityCode, checkInDate, checkOutDate, adults } = fc.args;
                     const numAdults = typeof adults === 'number' && adults > 0 ? adults : 2;
                     
-                    const systemMessage = `Searching for hotels in ${cityCode} via all providers...`;
+                    const systemMessage = `Searching for hotels in ${cityCode}...`;
                     setMessages((prev) => [...prev, { id: Date.now().toString(), role: MessageRole.SYSTEM, content: systemMessage }]);
 
-                    // Fetch location details to get coordinates for Duffel
+                    // Fetch location details to verify city and get coordinates for Duffel
                     const locations = await searchCityCode(cityCode as string);
-                    const mainLocation = locations.find(l => l.subType === 'CITY') || locations[0];
-                    const geoCode = mainLocation?.geoCode;
+                    const location = locations.find(l => l.iataCode === cityCode) || locations[0];
 
-                    const hotelPromises = [
+                    let allHotelOffers: HotelOffer[] = [];
+                    
+                    const promises: Promise<HotelOffer[]>[] = [];
+                    
+                    // Amadeus Search
+                    promises.push(
                         searchHotelsAmadeus(cityCode as string, checkInDate as string, checkOutDate as string, numAdults)
-                    ];
+                        .catch(error => {
+                            console.error("Amadeus hotel search failed", error);
+                            return [];
+                        })
+                    );
 
-                    if (geoCode?.latitude && geoCode?.longitude) {
-                        console.log(`Found coordinates for ${cityCode}: ${geoCode.latitude}, ${geoCode.longitude}. Adding Duffel to hotel search.`);
-                        hotelPromises.push(
-                            searchHotelsDuffel(geoCode.latitude, geoCode.longitude, checkInDate as string, checkOutDate as string, numAdults)
-                        );
-                    } else {
-                        console.log(`Could not find coordinates for ${cityCode}. Searching only with Amadeus.`);
+                    // Duffel Search (requires lat/long)
+                    if (location && location.geoCode) {
+                         promises.push(
+                            searchHotelsDuffel(location.geoCode.latitude, location.geoCode.longitude, checkInDate as string, checkOutDate as string, numAdults)
+                            .catch(error => {
+                                console.error("Duffel hotel search failed", error);
+                                return [];
+                            })
+                         );
                     }
 
-                    const results = await Promise.allSettled(hotelPromises);
-                    
-                    let allHotelOffers: HotelOffer[] = [];
-                    results.forEach(result => {
-                        if (result.status === 'fulfilled' && result.value) {
-                            allHotelOffers.push(...(result.value as HotelOffer[]));
-                        } else if (result.status === 'rejected') {
-                            if (result.reason?.message?.includes("Duffel Stays API feature is not enabled")) {
-                                const duffelErrorMessage: ChatMessage = {
-                                    id: Date.now().toString() + '-duffel-error',
-                                    role: MessageRole.SYSTEM,
-                                    content: "Note: The Duffel Stays API is not enabled for your key. Showing results from other providers only."
-                                };
-                                setMessages((prev) => [...prev, duffelErrorMessage]);
-                            }
-                        }
-                    });
+                    try {
+                         const results = await Promise.all(promises);
+                         allHotelOffers = results.flat();
+                    } catch (error) {
+                        console.error("Hotel search failed", error);
+                    }
 
                     // Simple deduplication based on hotel name and city
                     const uniqueHotelOffers = Array.from(new Map(allHotelOffers.map(offer => {

@@ -63,9 +63,18 @@ export const signUpWithEmail = async (email: string, password: string, fullName:
     if (!supabase) throw new Error("Supabase client not initialized");
     
     // Determine the URL to redirect to after email confirmation.
-    // In browser environments, use the current origin (e.g., https://your-app.pages.dev)
-    // Fallback to localhost if window is undefined (though this runs on client)
-    const redirectTo = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+    // Priority:
+    // 1. Explicit VITE_SITE_URL environment variable (useful for production overrides)
+    // 2. Current window origin (browser)
+    // 3. Fallback to localhost
+    let redirectTo = 'http://localhost:3000';
+    
+    const envSiteUrl = getEnvVar('VITE_SITE_URL');
+    if (envSiteUrl) {
+        redirectTo = envSiteUrl;
+    } else if (typeof window !== 'undefined') {
+        redirectTo = window.location.origin;
+    }
 
     return supabase.auth.signUp({
         email,

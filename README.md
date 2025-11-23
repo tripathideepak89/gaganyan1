@@ -1,3 +1,4 @@
+
 # TravelBilli - AI-Powered Flight & Hotel Booking Assistant
 
 TravelBilli is an intelligent, conversational travel assistant designed to simplify the process of finding and booking flights and hotels. It combines a user-friendly chat interface powered by Google's Gemini model with traditional search forms, providing a seamless and efficient trip planning experience.
@@ -30,6 +31,17 @@ TravelBilli is an intelligent, conversational travel assistant designed to simpl
     - Amadeus Self-Service API
     - Duffel API
 
+## 🔐 Supabase Authentication Setup
+
+To ensure the sign-up confirmation links redirect correctly to your deployed application:
+
+1.  Go to your **Supabase Dashboard**.
+2.  Navigate to **Authentication** > **URL Configuration**.
+3.  Under **Redirect URLs**, add your production URL (e.g., `https://travelbilli.com` or `https://your-project.pages.dev`).
+4.  Ensure the **Site URL** is also set correctly.
+
+> **Note:** If the redirect URL sent by the app (e.g., `https://travelbilli.com`) is not in this allowed list, Supabase will ignore it and fall back to the default Site URL (often `localhost:3000`), causing the email link to point to localhost.
+
 ## 🛠️ Setup & Configuration
 
 This project is designed to be deployed on a serverless platform like Cloudflare Pages, which natively supports integrating serverless functions (Workers) with a static frontend.
@@ -42,5 +54,6 @@ To run this application, you will need to configure the following environment va
 - **`AMADEUS_API_KEY`**: Your client ID from the Amadeus for Developers portal.
 - **`AMADEUS_API_SECRET`**: Your client secret from the Amadeus for Developers portal.
 - **`DUFFEL_API_KEY`**: Your access token from the Duffel dashboard.
+- **`VITE_SITE_URL`** (Optional): Force the authentication redirect URL to a specific domain (e.g., `https://travelbilli.com`).
 
 The Cloudflare Worker located in `/functions/api/[[path]].ts` is pre-configured to use these variables to securely proxy requests to the respective third-party APIs.
