@@ -289,8 +289,8 @@ export const onRequest: CFPagesFunction = async (context) => {
       destinationUrl.search = url.search;
       targetUrl = destinationUrl.toString();
       (apiRequestOptions.headers as Headers).set('Authorization', `Bearer ${DUFFEL_API_KEY}`);
-      const duffelVersion = actualPath.startsWith('stays/') ? 'beta' : 'v1';
-      (apiRequestOptions.headers as Headers).set('Duffel-Version', duffelVersion);
+      // 'v1' is deprecated. Switching to 'beta' which is commonly used for Duffel APIs now.
+      (apiRequestOptions.headers as Headers).set('Duffel-Version', 'beta');
     } else {
       return new Response('Invalid API provider.', { status: 400 });
     }
