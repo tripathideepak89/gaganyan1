@@ -114,7 +114,12 @@ async function getCachedResponse(supabaseUrl: string, supabaseKey: string, key: 
       }
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+        if (response.status !== 404 && response.status !== 406) {
+             console.warn(`[DB Cache Read Fail] Status: ${response.status} for key ${key}`);
+        }
+        return null;
+    }
     const data = await response.json(); // Type: any[]
 
     if (Array.isArray(data) && data.length > 0) {
@@ -124,7 +129,6 @@ async function getCachedResponse(supabaseUrl: string, supabaseKey: string, key: 
            return entry.response;
        } else {
            console.log(`[DB Cache Expired] ${key}`);
-           // Optional: Trigger delete/cleanup
        }
     }
     return null;
@@ -154,10 +158,13 @@ async function setCachedResponse(supabaseUrl: string, supabaseKey: string, key: 
     });
 
     if (!res.ok) {
-        console.error(`[Cache Write Error] Status: ${res.status} ${res.statusText}`);
+        console.error(`[Cache Write Error] Key: ${key}, Status: ${res.status} ${res.statusText}`);
         try {
             const text = await res.text();
             console.error(`[Cache Write Error Details]: ${text}`);
+            if (res.status === 401 || res.status === 403) {
+                console.error("Check Supabase RLS policies for 'api_cache' table or verify SUPABASE_SERVICE_ROLE_KEY.");
+            }
         } catch(e) {}
     } else {
         console.log(`[Cache Write Success] Key: ${key}`);
@@ -185,6 +192,10 @@ export const onRequest: CFPagesFunction = async (context) => {
   // Supabase Configuration for Backend Ops
   const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY;
   const useCache = !!(env.SUPABASE_URL && supabaseKey);
+  
+  if (!useCache) {
+      console.warn("Caching disabled: Missing SUPABASE_URL or API Key in environment.");
+  }
 
   // Handle logging requests
   if (apiProvider === 'log' && pathSegments[1] === 'search' && request.method === 'POST') {
@@ -293,6 +304,15 @@ export const onRequest: CFPagesFunction = async (context) => {
       }
   }
 
+  if (cacheKey) {
+      console.log(`[Cache Key Generated] ${cacheKey}`);
+  } else {
+      // Only log warn if it's a search endpoint that we expect to cache
+      if (actualPath.includes('offer') || actualPath.includes('search')) {
+           console.warn(`[Cache Skip] Could not generate key for ${actualPath} (${request.method})`);
+      }
+  }
+
   // 3. Try Read Cache
   if (useCache && cacheKey) {
       const cachedData = await getCachedResponse(env.SUPABASE_URL, supabaseKey, cacheKey);
@@ -348,13 +368,17 @@ export const onRequest: CFPagesFunction = async (context) => {
     responseHeaders.set('Access-Control-Allow-Origin', '*');
 
     // Clone data for caching
-    // Note: We use .clone().json() because we need the object to store in DB, 
-    // but we return the original stream to the client.
-    const responseData = await apiResponse.clone().json().catch(() => null);
+    const responseData = await apiResponse.clone().json().catch((e) => {
+        console.warn("Failed to parse upstream response as JSON for caching:", e);
+        return null;
+    });
 
     // 5. Write Cache (Async)
     if (useCache && cacheKey && apiResponse.ok && responseData && ttl > 0) {
+        console.log(`[Cache Trigger] Attempting to cache ${cacheKey}`);
         waitUntil(setCachedResponse(env.SUPABASE_URL, supabaseKey, cacheKey, responseData, ttl));
+    } else if (useCache && cacheKey && !apiResponse.ok) {
+        console.warn(`[Cache Skip] Upstream response was not OK: ${apiResponse.status}`);
     }
 
     // Return original body
