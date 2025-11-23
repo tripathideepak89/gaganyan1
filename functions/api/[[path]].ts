@@ -22,6 +22,14 @@ let amadeusTokenCache = {
   expires: 0,
 };
 
+async function hashString(str: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(str);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function getAmadeusToken(apiKey: string, apiSecret: string): Promise<string> {
   if (amadeusTokenCache.value && amadeusTokenCache.expires > Date.now()) {
     return amadeusTokenCache.value;
@@ -95,8 +103,9 @@ async function verifySupabaseToken(token: string, secret: string): Promise<any |
 
 async function getCachedResponse(supabaseUrl: string, supabaseKey: string, key: string): Promise<any | null> {
   try {
+    const baseUrl = supabaseUrl.endsWith('/') ? supabaseUrl.slice(0, -1) : supabaseUrl;
     // Supabase REST: GET /rest/v1/api_cache?key=eq.KEY&select=response,expires_at
-    const url = `${supabaseUrl}/rest/v1/api_cache?key=eq.${encodeURIComponent(key)}&select=response,expires_at&limit=1`;
+    const url = `${baseUrl}/rest/v1/api_cache?key=eq.${encodeURIComponent(key)}&select=response,expires_at&limit=1`;
     const response = await fetch(url, {
       headers: {
         'apikey': supabaseKey,
@@ -130,8 +139,10 @@ async function setCachedResponse(supabaseUrl: string, supabaseKey: string, key: 
     const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
     const body = JSON.stringify({ key, response, expires_at: expiresAt });
     
+    const baseUrl = supabaseUrl.endsWith('/') ? supabaseUrl.slice(0, -1) : supabaseUrl;
+    
     // Supabase REST: POST /rest/v1/api_cache with upsert
-    await fetch(`${supabaseUrl}/rest/v1/api_cache`, {
+    const res = await fetch(`${baseUrl}/rest/v1/api_cache`, {
         method: 'POST',
         headers: {
             'apikey': supabaseKey,
@@ -141,8 +152,18 @@ async function setCachedResponse(supabaseUrl: string, supabaseKey: string, key: 
         },
         body
     });
+
+    if (!res.ok) {
+        console.error(`[Cache Write Error] Status: ${res.status} ${res.statusText}`);
+        try {
+            const text = await res.text();
+            console.error(`[Cache Write Error Details]: ${text}`);
+        } catch(e) {}
+    } else {
+        console.log(`[Cache Write Success] Key: ${key}`);
+    }
   } catch (err) {
-    console.warn('Cache write error:', err);
+    console.error('[Cache Write Exception]', err);
   }
 }
 
@@ -226,34 +247,53 @@ export const onRequest: CFPagesFunction = async (context) => {
   
   const actualPath = pathSegments.slice(1).join('/');
   
-  const isGetRequest = request.method === 'GET';
-  const isPostSearch = request.method === 'POST' && (actualPath.includes('search') || actualPath.includes('offer_requests'));
-  
-  // Cache keys
-  let cacheKey = '';
-  let ttl = 0;
-
-  // 1. Static Reference Data (City Codes, Locations) - Cache for 7 days
-  if (isGetRequest && actualPath.includes('reference-data/locations')) {
-      cacheKey = `amadeus:locations:${url.searchParams.toString()}`;
-      ttl = 60 * 60 * 24 * 7; 
-  }
-  // 2. Flight Search - Cache for 30 minutes
-  else if ((isGetRequest && actualPath.includes('shopping/flight-offers')) || (isPostSearch && actualPath.includes('air/offer_requests'))) {
-      if (isGetRequest) {
-          cacheKey = `amadeus:flights:${url.searchParams.toString()}`;
-          ttl = 60 * 30; 
+  // 1. Read request body if needed (for POST caching and upstream forwarding)
+  let requestBody: string | null = null;
+  if (request.method === 'POST' || request.method === 'PUT') {
+      try {
+          requestBody = await request.text();
+      } catch (e) {
+          console.error("Failed to read request body", e);
       }
   }
-  // 3. Hotel Search - Cache for 1 hour
-  else if (actualPath.includes('shopping/hotel-offers') || actualPath.includes('hotels/search')) {
-       if (isGetRequest) {
+
+  // 2. Generate Cache Key
+  let cacheKey = '';
+  let ttl = 0;
+  
+  const isGet = request.method === 'GET';
+  const isPost = request.method === 'POST';
+
+  // Logic to determine cache key based on API path and params/body
+  // Reference Data (e.g. City Codes)
+  if (isGet && actualPath.includes('reference-data/locations')) {
+      cacheKey = `amadeus:ref:${url.searchParams.toString()}`;
+      ttl = 60 * 60 * 24 * 7; // 7 days
+  } 
+  // Flight Search (Amadeus uses GET, Duffel uses POST)
+  else if (actualPath.includes('flight-offers') || actualPath.includes('offer_requests')) {
+      if (isGet) {
+           cacheKey = `amadeus:flights:${url.searchParams.toString()}`;
+           ttl = 60 * 30; // 30 mins
+      } else if (isPost && requestBody) {
+           const hash = await hashString(requestBody);
+           cacheKey = `${apiProvider}:flights:${hash}`;
+           ttl = 60 * 30; // 30 mins
+      }
+  } 
+  // Hotel Search (Amadeus GET, Duffel POST)
+  else if (actualPath.includes('hotel-offers') || actualPath.includes('hotels/search') || actualPath.includes('stays/search')) {
+      if (isGet) {
           cacheKey = `amadeus:hotels:${url.searchParams.toString()}`;
-          ttl = 60 * 60;
-       }
+          ttl = 60 * 60; // 1 hour
+      } else if (isPost && requestBody) {
+          const hash = await hashString(requestBody);
+          cacheKey = `${apiProvider}:hotels:${hash}`;
+          ttl = 60 * 60; // 1 hour
+      }
   }
 
-  // TRY READ CACHE
+  // 3. Try Read Cache
   if (useCache && cacheKey) {
       const cachedData = await getCachedResponse(env.SUPABASE_URL, supabaseKey, cacheKey);
       if (cachedData) {
@@ -268,8 +308,7 @@ export const onRequest: CFPagesFunction = async (context) => {
       }
   }
 
-  // --- ORIGIN FETCH ---
-
+  // 4. Fetch from Upstream
   const requestHeaders = new Headers(request.headers);
   requestHeaders.delete('host');
   requestHeaders.delete('referer');
@@ -278,7 +317,7 @@ export const onRequest: CFPagesFunction = async (context) => {
   let apiRequestOptions: RequestInit = {
     method: request.method,
     headers: requestHeaders,
-    body: request.method !== 'GET' && request.method !== 'HEAD' ? await request.blob() : undefined,
+    body: requestBody ? requestBody : undefined,
     redirect: 'follow',
   };
 
@@ -309,9 +348,11 @@ export const onRequest: CFPagesFunction = async (context) => {
     responseHeaders.set('Access-Control-Allow-Origin', '*');
 
     // Clone data for caching
+    // Note: We use .clone().json() because we need the object to store in DB, 
+    // but we return the original stream to the client.
     const responseData = await apiResponse.clone().json().catch(() => null);
 
-    // WRITE CACHE (Async)
+    // 5. Write Cache (Async)
     if (useCache && cacheKey && apiResponse.ok && responseData && ttl > 0) {
         waitUntil(setCachedResponse(env.SUPABASE_URL, supabaseKey, cacheKey, responseData, ttl));
     }
