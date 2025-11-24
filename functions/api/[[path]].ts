@@ -158,14 +158,13 @@ async function setCachedResponse(supabaseUrl: string, supabaseKey: string, key: 
     });
 
     if (!res.ok) {
+        const text = await res.text();
         console.error(`[Cache Write Error] Key: ${key}, Status: ${res.status} ${res.statusText}`);
-        try {
-            const text = await res.text();
-            console.error(`[Cache Write Error Details]: ${text}`);
-            if (res.status === 401 || res.status === 403) {
-                console.error("Check Supabase RLS policies for 'api_cache' table or verify SUPABASE_SERVICE_ROLE_KEY.");
-            }
-        } catch(e) {}
+        console.error(`[Cache Write Error Details]: ${text}`);
+        
+        if (res.status === 401 || res.status === 403) {
+            console.warn("Permission Denied: Your Supabase RLS policy likely prevents this write. Ensure you are using SUPABASE_SERVICE_ROLE_KEY in your environment variables to bypass RLS, or update the 'api_cache' table policy to allow inserts from the 'anon' role.");
+        }
     } else {
         console.log(`[Cache Write Success] Key: ${key}`);
     }
@@ -312,10 +311,6 @@ export const onRequest: CFPagesFunction = async (context) => {
 
   if (cacheKey) {
       console.log(`[Cache Key Generated] ${cacheKey}`);
-  } else {
-      if (actualPath.includes('offer') || actualPath.includes('search')) {
-           console.warn(`[Cache Skip] Could not generate key for ${actualPath} (${request.method})`);
-      }
   }
 
   // 3. Try Read Cache
@@ -383,19 +378,22 @@ export const onRequest: CFPagesFunction = async (context) => {
     // 5. Write Cache (Async)
     // Only cache successful JSON responses with a valid TTL
     if (useCache && cacheKey && apiResponse.ok && ttl > 0) {
-        // Clone and parse to ensure it's valid JSON and we have the data to store
-        // We catch errors here in case the response isn't JSON or is empty
+        // Clone the response to read it for caching while still returning original body stream
         const responseClone = apiResponse.clone();
         
-        try {
-            const responseData = await responseClone.json();
-            console.log(`[Cache Trigger] Attempting to cache ${cacheKey}`);
-            waitUntil(setCachedResponse(env.SUPABASE_URL, supabaseKey, cacheKey, responseData, ttl));
-            responseHeaders.set('X-Cache-Status', 'STORE');
-        } catch (e) {
-             console.warn(`[Cache Skip] Failed to parse response JSON for ${cacheKey}:`, e);
-             responseHeaders.set('X-Cache-Status', 'ERROR_PARSE');
-        }
+        // Use waitUntil to process caching in background without delaying response
+        waitUntil((async () => {
+            try {
+                // Must parse JSON to store structured data in JSONB column
+                const responseData = await responseClone.json();
+                console.log(`[Cache Trigger] Attempting to cache ${cacheKey}`);
+                await setCachedResponse(env.SUPABASE_URL, supabaseKey, cacheKey, responseData, ttl);
+            } catch (e) {
+                console.warn(`[Cache Skip] Failed to parse response JSON for ${cacheKey}:`, e);
+            }
+        })());
+        
+        responseHeaders.set('X-Cache-Status', 'STORE');
     } else {
         if (!useCache) {
              responseHeaders.set('X-Cache-Status', 'DISABLED');
