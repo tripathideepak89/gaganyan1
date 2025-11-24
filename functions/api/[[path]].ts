@@ -145,7 +145,7 @@ async function setCachedResponse(supabaseUrl: string, supabaseKey: string, key: 
     
     const baseUrl = supabaseUrl.endsWith('/') ? supabaseUrl.slice(0, -1) : supabaseUrl;
     
-    // Supabase REST: POST /rest/v1/api_cache with upsert
+    // Supabase REST: POST /rest/v1/api_cache with upsert behavior via resolution=merge-duplicates
     const res = await fetch(`${baseUrl}/rest/v1/api_cache`, {
         method: 'POST',
         headers: {
@@ -193,8 +193,14 @@ export const onRequest: CFPagesFunction = async (context) => {
   const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY;
   const useCache = !!(env.SUPABASE_URL && supabaseKey);
   
-  if (!useCache) {
-      console.warn("Caching disabled: Missing SUPABASE_URL or API Key in environment.");
+  // Debug status for X-Cache-Status header
+  let cacheDebugStatus = useCache ? 'MISS' : 'DISABLED';
+
+  if (!env.SUPABASE_URL) {
+      console.warn("Caching disabled: SUPABASE_URL missing in environment.");
+  }
+  if (env.SUPABASE_URL && !supabaseKey) {
+      console.warn("Caching disabled: Supabase Keys (SERVICE_ROLE or ANON) missing in environment.");
   }
 
   // Handle logging requests
@@ -307,7 +313,6 @@ export const onRequest: CFPagesFunction = async (context) => {
   if (cacheKey) {
       console.log(`[Cache Key Generated] ${cacheKey}`);
   } else {
-      // Only log warn if it's a search endpoint that we expect to cache
       if (actualPath.includes('offer') || actualPath.includes('search')) {
            console.warn(`[Cache Skip] Could not generate key for ${actualPath} (${request.method})`);
       }
@@ -322,7 +327,9 @@ export const onRequest: CFPagesFunction = async (context) => {
               headers: { 
                   'Content-Type': 'application/json',
                   'Access-Control-Allow-Origin': '*',
-                  'X-Cache-Source': 'Supabase-DB'
+                  'X-Cache-Source': 'Supabase-DB',
+                  'X-Cache-Status': 'HIT',
+                  'X-Cache-Key': cacheKey
               }
           });
       }
@@ -332,6 +339,9 @@ export const onRequest: CFPagesFunction = async (context) => {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.delete('host');
   requestHeaders.delete('referer');
+  // IMPORTANT: Remove Accept-Encoding to prevent upstream from sending compressed data (gzip/br).
+  // The worker needs plain text (or auto-handled text) to clone().json() successfully for caching.
+  requestHeaders.delete('accept-encoding');
 
   let targetUrl: string;
   let apiRequestOptions: RequestInit = {
@@ -366,22 +376,38 @@ export const onRequest: CFPagesFunction = async (context) => {
     // Process response for return and caching
     const responseHeaders = new Headers(apiResponse.headers);
     responseHeaders.set('Access-Control-Allow-Origin', '*');
-
-    // Clone data for caching
-    const responseData = await apiResponse.clone().json().catch((e) => {
-        console.warn("Failed to parse upstream response as JSON for caching:", e);
-        return null;
-    });
+    
+    // Set debug headers
+    if (cacheKey) responseHeaders.set('X-Cache-Key', cacheKey);
 
     // 5. Write Cache (Async)
-    if (useCache && cacheKey && apiResponse.ok && responseData && ttl > 0) {
-        console.log(`[Cache Trigger] Attempting to cache ${cacheKey}`);
-        waitUntil(setCachedResponse(env.SUPABASE_URL, supabaseKey, cacheKey, responseData, ttl));
-    } else if (useCache && cacheKey && !apiResponse.ok) {
-        console.warn(`[Cache Skip] Upstream response was not OK: ${apiResponse.status}`);
+    // Only cache successful JSON responses with a valid TTL
+    if (useCache && cacheKey && apiResponse.ok && ttl > 0) {
+        // Clone and parse to ensure it's valid JSON and we have the data to store
+        // We catch errors here in case the response isn't JSON or is empty
+        const responseClone = apiResponse.clone();
+        
+        try {
+            const responseData = await responseClone.json();
+            console.log(`[Cache Trigger] Attempting to cache ${cacheKey}`);
+            waitUntil(setCachedResponse(env.SUPABASE_URL, supabaseKey, cacheKey, responseData, ttl));
+            responseHeaders.set('X-Cache-Status', 'STORE');
+        } catch (e) {
+             console.warn(`[Cache Skip] Failed to parse response JSON for ${cacheKey}:`, e);
+             responseHeaders.set('X-Cache-Status', 'ERROR_PARSE');
+        }
+    } else {
+        if (!useCache) {
+             responseHeaders.set('X-Cache-Status', 'DISABLED');
+        } else if (!cacheKey) {
+             responseHeaders.set('X-Cache-Status', 'NO_KEY');
+        } else if (!apiResponse.ok) {
+             responseHeaders.set('X-Cache-Status', `UPSTREAM_${apiResponse.status}`);
+        } else {
+             responseHeaders.set('X-Cache-Status', 'MISS');
+        }
     }
 
-    // Return original body
     return new Response(apiResponse.body, {
       status: apiResponse.status,
       statusText: apiResponse.statusText,
