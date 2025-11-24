@@ -1,4 +1,5 @@
 
+
 // Fix for KVNamespace type not being found
 interface KVNamespace {
   put(key: string, value: string): Promise<void>;
@@ -361,7 +362,7 @@ export const onRequest: CFPagesFunction = async (context) => {
       destinationUrl.search = url.search;
       targetUrl = destinationUrl.toString();
       (apiRequestOptions.headers as Headers).set('Authorization', `Bearer ${DUFFEL_API_KEY}`);
-      (apiRequestOptions.headers as Headers).set('Duffel-Version', 'beta');
+      (apiRequestOptions.headers as Headers).set('Duffel-Version', 'v2');
     } else {
       return new Response('Invalid API provider.', { status: 400 });
     }
