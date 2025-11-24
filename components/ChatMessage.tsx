@@ -132,7 +132,7 @@ const HotelOfferCard: React.FC<{ hotelOffer: HotelOffer }> = ({ hotelOffer }) =>
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <h3 className="font-bold text-lg text-blue-300">{hotelOffer.name}</h3>
-          {hotelOffer.rating > 0 && renderStars(hotelOffer.rating)}
+          {renderStars(hotelOffer.rating)}
           <p className="text-xs text-gray-400 mt-2">{fullAddress}</p>
         </div>
         <div className="text-right ml-4">

@@ -76,3 +76,32 @@ export interface ChatMessage {
   role: MessageRole;
   content: string | FlightOffer[] | Location[] | HotelOffer[];
 }
+
+export interface Airport {
+  id: number;
+  icao_code: string;
+  iata_code: string;
+  airport_name: string;
+  city: string;
+  country: string;
+  latitude_degrees?: number;
+  latitude_minutes?: number;
+  latitude_seconds?: number;
+  latitude_direction?: string;
+  longitude_degrees?: number;
+  longitude_minutes?: number;
+  longitude_seconds?: number;
+  longitude_direction?: string;
+  altitude?: number;
+  latitude_decimal?: number;
+  longitude_decimal?: number;
+}
+
+export interface HotelDatabaseEntry {
+  id: number;
+  hotel_name: string;
+  city: string | null;
+  country_code: string | null;
+  country_name: string | null;
+  nearest_airport_code: string | null;
+}

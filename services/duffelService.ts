@@ -1,3 +1,4 @@
+
 import { FlightOffer, FlightSegment, Itinerary, HotelOffer, HotelAddress } from '../types';
 import { getAirlineBookingUrl, formatISODuration } from './utils';
 
@@ -17,11 +18,17 @@ export const searchFlights = async (
     slices.push({ origin: destination, destination: origin, departure_date: returnDate });
   }
 
-  const passengers: { type: 'adult' | 'child', age?: number }[] = [];
+  const passengers: { type?: 'adult' | 'child', age?: number }[] = [];
   for (let i = 0; i < adults; i++) passengers.push({ type: 'adult' });
   for (let i = 0; i < children; i++) {
-    const age = childAges && childAges[i] ? childAges[i] : 6;
-    passengers.push({ type: 'child', age });
+    // Duffel prefers either type OR age. If age is known, send age.
+    const age = childAges && childAges[i] !== undefined ? childAges[i] : undefined;
+    if (age !== undefined) {
+        // Ensure age is an integer
+        passengers.push({ age: Math.floor(age) });
+    } else {
+        passengers.push({ type: 'child' });
+    }
   }
 
   const requestBody = { data: { slices, passengers, cabin_class: 'economy' } };
@@ -72,7 +79,7 @@ export const searchFlights = async (
       const carrierCode = offer.owner.iata_code;
       return {
         id: offer.id, price: parseFloat(offer.total_amount), itineraries,
-        airline: offer.owner.name, bookingUrl: getAirlineBookingUrl(carrierCode),
+        airline: offer.owner.name, bookingUrl: getAirlineBookingUrl(carrierCode, origin, destination, departureDate, returnDate),
       };
     });
 
@@ -100,8 +107,8 @@ export const searchHotels = async (
 
     const requestBody = {
         data: {
-            rooms: "1",
-            location: { radius: "20", geographic_coordinates: { latitude, longitude } },
+            rooms: 1,
+            location: { radius: 20, geographic_coordinates: { latitude, longitude } },
             check_in_date: checkInDate, check_out_date: checkOutDate, guests,
         }
     };
@@ -152,7 +159,7 @@ export const searchHotels = async (
                     rating: prop.star_rating ? parseInt(prop.star_rating, 10) : 0,
                     address,
                     price: parseFloat(rate.total_amount),
-                    bookingUrl: `https://www.google.com/search?q=${encodeURIComponent(prop.name)}+${encodeURIComponent(address.cityName)}`,
+                    bookingUrl: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(prop.name + ', ' + address.cityName)}&checkin=${checkInDate}&checkout=${checkOutDate}&group_adults=${adults}&sb=1`,
                 };
         });
 

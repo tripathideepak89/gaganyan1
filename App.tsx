@@ -1,13 +1,16 @@
+
 import React, { useState, useEffect } from 'react';
-import { GenerateContentResponse } from '@google/genai';
+import { GenerateContentResponse, Chat } from '@google/genai';
 import { ChatMessage, MessageRole, FlightOffer, Location, HotelOffer } from './types';
-import { chat, isApiKeySet } from './services/geminiService';
-import { searchFlights as searchFlightsAmadeus, searchCityCode, searchHotels as searchHotelsAmadeus } from './services/amadeusService';
+import { initializeChat } from './services/geminiService';
+import { searchFlights as searchFlightsAmadeus, searchCityCode, searchHotels as searchHotelsAmadeus, reverseGeocode } from './services/amadeusService';
 import { searchFlights as searchFlightsDuffel, searchHotels as searchHotelsDuffel } from './services/duffelService';
+import { getSupabase, signOut } from './services/supabaseClient';
 import ChatView from './components/ChatView';
 import FlightSearchForm from './components/FlightSearchForm';
 import HotelSearchForm from './components/HotelSearchForm';
-import { TravelBilliLogo, PaperAirplaneIcon, BuildingOfficeIcon, ChatBubbleLeftRightIcon } from './components/IconComponents';
+import LoginModal from './components/LoginModal';
+import { TravelBilliLogo, PaperAirplaneIcon, BuildingOfficeIcon, ChatBubbleLeftRightIcon, UserCircleIcon, ArrowRightOnRectangleIcon } from './components/IconComponents';
 
 const durationToMinutes = (duration: string): number => {
   const hoursMatch = duration.match(/(\d+)h/);
@@ -90,10 +93,20 @@ const calculateHotelScores = (offers: HotelOffer[]): HotelOffer[] => {
 
 const App: React.FC = () => {
   type ActiveTab = 'flights' | 'hotels' | 'chat';
+  type AppStatus = 'initializing' | 'ready' | 'error';
+
+  const [appStatus, setAppStatus] = useState<AppStatus>('initializing');
+  const [chatInstance, setChatInstance] = useState<Chat | null>(null);
+
   const [activeTab, setActiveTab] = useState<ActiveTab>('flights');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
+
+  // User state (Supabase User)
+  const [currentUser, setCurrentUser] = useState<any | null>(null);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ city: string } | null>(null);
 
   // State for Flight Search Form
   const [tripType, setTripType] = useState<'roundtrip' | 'oneway'>('roundtrip');
@@ -113,17 +126,108 @@ const App: React.FC = () => {
 
 
   useEffect(() => {
-    setShowSuggestions(true);
-    setMessages([
-        {
-          id: 'init',
-          role: MessageRole.MODEL,
-          content: "Hello! I'm your travel assistant. You can ask me to find flights and hotels, or use the forms in the other tabs.",
-        },
-    ]);
+    const init = async () => {
+      // Initialize Supabase Auth Listener
+      const supabase = await getSupabase();
+      if (supabase) {
+        // Check current session
+        const { data: { session } } = await supabase.auth.getSession();
+        setCurrentUser(session?.user ?? null);
+
+        // Listen for changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+          setCurrentUser(session?.user ?? null);
+        });
+      }
+
+      const initializeAndLoadChat = async (location: { city: string } | null) => {
+        const chat = await initializeChat(location);
+        if (chat) {
+          setChatInstance(chat);
+          setAppStatus('ready');
+          setShowSuggestions(true);
+          setMessages([
+              {
+                id: 'init',
+                role: MessageRole.MODEL,
+                content: "Hello! I'm TravelBilli, your expert travel assistant, ready to plan your family's perfect getaway.\n\nWhile I can't browse destinations based on broad terms like 'cheapest' or 'hottest,' I can help you explore some fantastic options. Travelers looking for warm, budget-friendly destinations in December often consider places like Cancún, Mexico or Phuket, Thailand.\n\nDo any of those sound interesting, or do you have another destination in mind? Let me know, and I'll find the best flight and hotel deals for you, your wife, and your 4-year-old!",
+              },
+          ]);
+        } else {
+          setAppStatus('error');
+        }
+      };
+
+      const storedLocation = localStorage.getItem('travelbilli_location');
+      if (storedLocation) {
+        const locationData = JSON.parse(storedLocation);
+        setUserLocation(locationData);
+        initializeAndLoadChat(locationData);
+      } else {
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            const { latitude, longitude } = position.coords;
+            const city = await reverseGeocode(latitude, longitude);
+            const locationData = city ? { city } : null;
+            if (locationData) {
+                setUserLocation(locationData);
+                localStorage.setItem('travelbilli_location', JSON.stringify(locationData));
+            }
+            initializeAndLoadChat(locationData);
+          },
+          (error) => {
+            console.warn(`Geolocation error: ${error.message}`);
+            initializeAndLoadChat(null); // Initialize without location
+          },
+          { timeout: 10000 }
+        );
+      }
+    };
+    init();
   }, []);
 
-  if (!isApiKeySet) {
+  const handleLoginSuccess = (user: any) => {
+    setCurrentUser(user);
+    setIsLoginModalOpen(false);
+  };
+
+  const handleLogout = async () => {
+    await signOut();
+    setCurrentUser(null);
+  };
+
+  const logSearch = async (query: string) => {
+    if (currentUser && currentUser.email) {
+      try {
+        // Fetch Supabase to get the current session token
+        const supabase = await getSupabase();
+        const { data: { session } } = await supabase?.auth.getSession() || { data: { session: null } };
+        const token = session?.access_token;
+
+        await fetch('/api/log/search', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            // Send JWT for backend verification
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ user: { email: currentUser.email }, query }),
+        });
+      } catch (error) {
+        console.error('Failed to log search:', error);
+      }
+    }
+  };
+
+  if (appStatus === 'initializing') {
+    return (
+      <div className="flex flex-col h-screen bg-gray-900 text-white items-center justify-center p-8 text-center">
+        <h1 className="text-2xl font-semibold">Initializing Assistant...</h1>
+      </div>
+    );
+  }
+
+  if (appStatus === 'error') {
     return (
       <div className="flex flex-col h-screen bg-gray-900 text-white items-center justify-center p-8 text-center">
         <div className="bg-red-800 border border-red-600 p-8 rounded-lg shadow-lg max-w-2xl">
@@ -132,7 +236,7 @@ const App: React.FC = () => {
             The application cannot start because the Google AI API key is missing.
           </p>
           <p className="mt-4 text-md text-red-200">
-            Please ensure the <code className="bg-red-900 px-2 py-1 rounded-md font-mono text-white">API_KEY</code> environment variable is set in your deployment configuration.
+            Please ensure the <code className="bg-red-900 px-2 py-1 rounded-md font-mono text-white">API_KEY</code> environment variable is set in your deployment configuration, or use this in an environment where the key can be provided automatically.
           </p>
           <p className="mt-6 text-sm text-gray-300">
             This is a server-side configuration and needs to be resolved by the application administrator.
@@ -143,6 +247,9 @@ const App: React.FC = () => {
   }
 
   const handleSendMessage = async (userInput: string) => {
+    if (!chatInstance) return;
+
+    logSearch(userInput);
     setShowSuggestions(false);
     setIsLoading(true);
 
@@ -154,7 +261,7 @@ const App: React.FC = () => {
     setMessages((prevMessages) => [...prevMessages.filter(m => m.id !== 'init'), newUserMessage]);
 
     try {
-        let response: GenerateContentResponse = await chat!.sendMessage({ message: userInput });
+        let response: GenerateContentResponse = await chatInstance.sendMessage({ message: userInput });
         
         let executionCount = 0;
         const MAX_EXECUTIONS = 5;
@@ -172,21 +279,38 @@ const App: React.FC = () => {
                 if (fc.name === 'searchFlights') {
                     const { origin, destination, departureDate, adults, children, returnDate, childAges } = fc.args;
                     const numAdults = typeof adults === 'number' && adults > 0 ? adults : 1;
-                    const numChildren = typeof children === 'number' && children >= 0 ? children : 0;
-                    const systemMessage = `Searching flights from ${origin} to ${destination} via all providers...`;
+                    
+                    // Improve inference of children count.
+                    // Sometimes the model identifies childAges but misses the children count.
+                    let numChildren = typeof children === 'number' && children >= 0 ? children : 0;
+                    if (numChildren === 0 && Array.isArray(childAges) && childAges.length > 0) {
+                        numChildren = childAges.length;
+                    }
+
+                    const validChildAges = Array.isArray(childAges) ? childAges : [];
+
+                    const systemMessage = `Searching flights from ${origin} to ${destination}...`;
                     setMessages((prev) => [...prev, { id: Date.now().toString(), role: MessageRole.SYSTEM, content: systemMessage }]);
                     
-                    const results = await Promise.allSettled([
-                        searchFlightsAmadeus(origin as string, destination as string, departureDate as string, numAdults, numChildren, returnDate as string | undefined),
-                        searchFlightsDuffel(origin as string, destination as string, departureDate as string, numAdults, numChildren, returnDate as string | undefined, childAges as number[] | undefined)
-                    ]);
-
                     let allFlightOffers: FlightOffer[] = [];
-                    results.forEach(result => {
-                        if (result.status === 'fulfilled' && result.value) {
-                            allFlightOffers.push(...result.value);
-                        }
-                    });
+                    
+                    try {
+                        const [amadeusResults, duffelResults] = await Promise.all([
+                            searchFlightsAmadeus(origin as string, destination as string, departureDate as string, numAdults, numChildren, returnDate as string | undefined)
+                                .catch(err => {
+                                    console.error("Amadeus flight search failed", err);
+                                    return [];
+                                }),
+                            searchFlightsDuffel(origin as string, destination as string, departureDate as string, numAdults, numChildren, returnDate as string | undefined, validChildAges)
+                                .catch(err => {
+                                    console.error("Duffel flight search failed", err);
+                                    return [];
+                                })
+                        ]);
+                        allFlightOffers = [...amadeusResults, ...duffelResults];
+                    } catch (error) {
+                        console.error("Flight search failed", error);
+                    }
 
                     const uniqueFlightOffers = Array.from(new Map(allFlightOffers.map(offer => {
                         const firstSegment = offer.itineraries[0]?.segments[0];
@@ -211,44 +335,43 @@ const App: React.FC = () => {
                     const { cityCode, checkInDate, checkOutDate, adults } = fc.args;
                     const numAdults = typeof adults === 'number' && adults > 0 ? adults : 2;
                     
-                    const systemMessage = `Searching for hotels in ${cityCode} via all providers...`;
+                    const systemMessage = `Searching for hotels in ${cityCode}...`;
                     setMessages((prev) => [...prev, { id: Date.now().toString(), role: MessageRole.SYSTEM, content: systemMessage }]);
 
-                    // Fetch location details to get coordinates for Duffel
+                    // Fetch location details to verify city and get coordinates for Duffel
                     const locations = await searchCityCode(cityCode as string);
-                    const mainLocation = locations.find(l => l.subType === 'CITY') || locations[0];
-                    const geoCode = mainLocation?.geoCode;
+                    const location = locations.find(l => l.iataCode === cityCode) || locations[0];
 
-                    const hotelPromises = [
+                    let allHotelOffers: HotelOffer[] = [];
+                    
+                    const promises: Promise<HotelOffer[]>[] = [];
+                    
+                    // Amadeus Search
+                    promises.push(
                         searchHotelsAmadeus(cityCode as string, checkInDate as string, checkOutDate as string, numAdults)
-                    ];
+                        .catch(error => {
+                            console.error("Amadeus hotel search failed", error);
+                            return [];
+                        })
+                    );
 
-                    if (geoCode?.latitude && geoCode?.longitude) {
-                        console.log(`Found coordinates for ${cityCode}: ${geoCode.latitude}, ${geoCode.longitude}. Adding Duffel to hotel search.`);
-                        hotelPromises.push(
-                            searchHotelsDuffel(geoCode.latitude, geoCode.longitude, checkInDate as string, checkOutDate as string, numAdults)
-                        );
-                    } else {
-                        console.log(`Could not find coordinates for ${cityCode}. Searching only with Amadeus.`);
+                    // Duffel Search (requires lat/long)
+                    if (location && location.geoCode) {
+                         promises.push(
+                            searchHotelsDuffel(location.geoCode.latitude, location.geoCode.longitude, checkInDate as string, checkOutDate as string, numAdults)
+                            .catch(error => {
+                                console.error("Duffel hotel search failed", error);
+                                return [];
+                            })
+                         );
                     }
 
-                    const results = await Promise.allSettled(hotelPromises);
-                    
-                    let allHotelOffers: HotelOffer[] = [];
-                    results.forEach(result => {
-                        if (result.status === 'fulfilled' && result.value) {
-                            allHotelOffers.push(...(result.value as HotelOffer[]));
-                        } else if (result.status === 'rejected') {
-                            if (result.reason?.message?.includes("Duffel Stays API feature is not enabled")) {
-                                const duffelErrorMessage: ChatMessage = {
-                                    id: Date.now().toString() + '-duffel-error',
-                                    role: MessageRole.SYSTEM,
-                                    content: "Note: The Duffel Stays API is not enabled for your key. Showing results from other providers only."
-                                };
-                                setMessages((prev) => [...prev, duffelErrorMessage]);
-                            }
-                        }
-                    });
+                    try {
+                         const results = await Promise.all(promises);
+                         allHotelOffers = results.flat();
+                    } catch (error) {
+                        console.error("Hotel search failed", error);
+                    }
 
                     // Simple deduplication based on hotel name and city
                     const uniqueHotelOffers = Array.from(new Map(allHotelOffers.map(offer => {
@@ -259,9 +382,23 @@ const App: React.FC = () => {
                     const hotelOffersWithScores = calculateHotelScores(uniqueHotelOffers);
                     hotelOffersWithScores.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
                     
+                    let messageForModel = uniqueHotelOffers.length > 0 
+                        ? `Found ${uniqueHotelOffers.length} hotels.` 
+                        : "No hotels found.";
+
+                    if (uniqueHotelOffers.length === 0 && checkInDate) {
+                        const today = new Date();
+                        const elevenMonthsFromNow = new Date(today.getFullYear(), today.getMonth() + 11, today.getDate());
+                        const checkIn = new Date(checkInDate as string);
+
+                        if (checkIn > elevenMonthsFromNow) {
+                            messageForModel = "No hotels were found. This might be because the check-in date is more than 11 months in the future, and availability is often limited that far in advance. Please try searching for dates closer to today.";
+                        }
+                    }
+                    
                     const summaryResult = {
                         count: uniqueHotelOffers.length,
-                        message: uniqueHotelOffers.length > 0 ? `Found ${uniqueHotelOffers.length} hotels.` : "No hotels found."
+                        message: messageForModel,
                     };
                     functionResponseParts.push({ functionResponse: { name: fc.name, response: { result: summaryResult }}});
                     
@@ -280,7 +417,7 @@ const App: React.FC = () => {
             }
 
             if (functionResponseParts.length > 0) {
-                response = await chat!.sendMessage({ message: functionResponseParts as any});
+                response = await chatInstance.sendMessage({ message: functionResponseParts as any});
             } else {
                 break; 
             }
@@ -312,6 +449,7 @@ const App: React.FC = () => {
   };
 
   const handleFormSearch = (query: string) => {
+    logSearch(query);
     setActiveTab('chat');
     handleSendMessage(query);
   };
@@ -333,9 +471,37 @@ const App: React.FC = () => {
   return (
     <div className="flex flex-col h-screen text-white">
       <header className="bg-gray-800 border-b border-gray-700 p-4 shadow-md">
-        <div className="flex items-center justify-center gap-x-3">
-          <TravelBilliLogo className="w-10 h-10 text-blue-300" />
-          <h1 className="text-xl font-bold text-center text-blue-300">travelbilli</h1>
+        <div className="flex items-center justify-between max-w-7xl mx-auto">
+          <div className="flex items-center justify-center gap-x-3">
+            <TravelBilliLogo className="w-10 h-10 text-blue-300" />
+            <h1 className="text-xl font-bold text-center text-blue-300">travelbilli</h1>
+          </div>
+          <div className="flex items-center gap-x-4">
+            {currentUser ? (
+              <>
+                <div className="flex items-center gap-x-2">
+                    <UserCircleIcon className="w-6 h-6 text-gray-400" />
+                    <span className="text-sm font-medium text-gray-300">
+                        {currentUser.user_metadata?.full_name || currentUser.email}
+                    </span>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-x-1 text-sm text-gray-400 hover:text-white transition-colors"
+                >
+                  <ArrowRightOnRectangleIcon className="w-5 h-5" />
+                  Logout
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setIsLoginModalOpen(true)}
+                className="bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors duration-200 text-sm"
+              >
+                Login / Sign Up
+              </button>
+            )}
+          </div>
         </div>
       </header>
       
@@ -393,6 +559,13 @@ const App: React.FC = () => {
             />
         )}
       </main>
+      
+      {isLoginModalOpen && (
+        <LoginModal 
+            onLogin={handleLoginSuccess}
+            onClose={() => setIsLoginModalOpen(false)}
+        />
+      )}
     </div>
   );
 };

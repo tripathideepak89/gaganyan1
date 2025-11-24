@@ -1,15 +1,66 @@
+
 import { FlightOffer, Location, FlightSegment, Itinerary, HotelOffer, HotelAddress } from '../types';
 import { getAirlineBookingUrl, formatISODuration } from './utils';
 
 const AMADEUS_PROXY_URL = '/api/amadeus';
 
+// Simple in-memory deduplication map for active requests
+const requestCache = new Map<string, Promise<any>>();
+
+const fetchWithDedupe = async (url: string): Promise<Response> => {
+  if (requestCache.has(url)) {
+    console.log(`Deduplicating request: ${url}`);
+    return requestCache.get(url)!.then(res => res.clone());
+  }
+
+  const promise = fetch(url).then(res => {
+    // Remove from cache a few seconds after completion to allow re-fetching on error or manual refresh later
+    setTimeout(() => requestCache.delete(url), 5000);
+    return res;
+  }).catch(err => {
+    requestCache.delete(url);
+    throw err;
+  });
+
+  requestCache.set(url, promise);
+  return promise.then(res => res.clone());
+};
+
 export const searchCityCode = async (keyword: string): Promise<Location[]> => {
   console.log(`Searching for city code with keyword: ${keyword}`);
   try {
-    const targetUrl = `${AMADEUS_PROXY_URL}/v1/reference-data/locations?subType=CITY,AIRPORT&keyword=${encodeURIComponent(keyword.toUpperCase())}`;
-    const response = await fetch(targetUrl);
+    let searchTerm = keyword;
+    
+    // Extract IATA code if present in parentheses (e.g., "City, Country (ABC)")
+    const iataMatch = keyword.match(/\(([A-Z]{3})\)/i);
+    if (iataMatch) {
+        searchTerm = iataMatch[1];
+    } else {
+        // Sanitize: remove special characters that Amadeus dislikes (like commas)
+        // Keep letters, numbers, spaces, and hyphens.
+        searchTerm = keyword.replace(/[^a-zA-Z0-9\s-]/g, ' ').trim();
+    }
+    
+    // Ensure we don't send an empty string or just whitespace
+    if (!searchTerm || searchTerm.length < 2) {
+         console.warn(`Search term "${searchTerm}" is too short.`);
+         return [];
+    }
 
-    if (!response.ok) throw new Error(`API call failed with status: ${response.status}`);
+    const targetUrl = `${AMADEUS_PROXY_URL}/v1/reference-data/locations?subType=CITY,AIRPORT&keyword=${encodeURIComponent(searchTerm.toUpperCase())}`;
+    
+    // Use deduplicated fetch
+    const response = await fetchWithDedupe(targetUrl);
+
+    if (!response.ok) {
+        // If it's a 400, it might be an invalid format we didn't catch, or just Amadeus being picky.
+        // Return empty array instead of throwing to prevent crashing the chat flow.
+        if (response.status === 400) {
+            console.warn(`Amadeus API returned 400 for keyword "${searchTerm}".`);
+            return [];
+        }
+        throw new Error(`API call failed with status: ${response.status}`);
+    }
     
     const data = await response.json();
     const locations: Location[] = data.data.map((loc: any) => ({
@@ -38,8 +89,8 @@ export const searchFlights = async (
   
   try {
     const params = new URLSearchParams({
-      originLocationCode: origin,
-      destinationLocationCode: destination,
+      originLocationCode: origin.toUpperCase(),
+      destinationLocationCode: destination.toUpperCase(),
       departureDate: departureDate,
       adults: adults.toString(),
       currencyCode: 'USD',
@@ -50,11 +101,14 @@ export const searchFlights = async (
     if (returnDate) params.append('returnDate', returnDate);
 
     const targetUrl = `${AMADEUS_PROXY_URL}/v2/shopping/flight-offers?${params.toString()}`;
-    const response = await fetch(targetUrl);
+    // Use deduplicated fetch
+    const response = await fetchWithDedupe(targetUrl);
 
     if (!response.ok) {
-      console.error('Amadeus API Error Response:', await response.text());
-      throw new Error(`API call failed with status: ${response.status}`);
+      const errorText = await response.text();
+      console.error('Amadeus API Error Response:', errorText);
+      if (response.status === 400) return [];
+      throw new Error(`Amadeus API call failed: ${response.status} - ${errorText}`);
     }
     
     const data = await response.json();
@@ -88,7 +142,7 @@ export const searchFlights = async (
       return {
         id: offer.id, price: parseFloat(offer.price.total), itineraries,
         airline: data.dictionaries.carriers[carrierCode] || carrierCode,
-        bookingUrl: getAirlineBookingUrl(carrierCode),
+        bookingUrl: getAirlineBookingUrl(carrierCode, origin, destination, departureDate, returnDate),
       };
     });
 
@@ -96,20 +150,26 @@ export const searchFlights = async (
     return flightOffers;
   } catch (error) {
     console.error(`Error in searchFlights:`, error);
-    return [];
+    throw error;
   }
 };
 
 export const searchHotels = async (
     cityCode: string, checkInDate: string, checkOutDate: string, adults: number
 ): Promise<HotelOffer[]> => {
+    // This now points to the aggregated backend endpoint if desired, 
+    // but the original code was pointing to Amadeus directly via proxy.
+    // We will keep it as is but use dedupe.
+    
     console.log(`Searching for hotels in ${cityCode} from ${checkInDate} to ${checkOutDate} for ${adults} adults.`);
     try {
         // Step 1: Get hotel IDs for the given city
         console.log(`Step 1: Fetching hotel list for city ${cityCode}...`);
         const hotelListParams = new URLSearchParams({ cityCode, radius: '20', radiusUnit: 'KM' });
         const hotelListTargetUrl = `${AMADEUS_PROXY_URL}/v1/reference-data/locations/hotels/by-city?${hotelListParams.toString()}`;
-        const hotelListResponse = await fetch(hotelListTargetUrl);
+        
+        // Use dedupe
+        const hotelListResponse = await fetchWithDedupe(hotelListTargetUrl);
 
         if (!hotelListResponse.ok) {
             console.error('Amadeus Hotel List API Error Response:', await hotelListResponse.text());
@@ -133,7 +193,9 @@ export const searchHotels = async (
         });
 
         const offersTargetUrl = `${AMADEUS_PROXY_URL}/v3/shopping/hotel-offers?${hotelOffersParams.toString()}`;
-        const response = await fetch(offersTargetUrl);
+        
+        // Use dedupe
+        const response = await fetchWithDedupe(offersTargetUrl);
 
         if (!response.ok) {
             console.error('Amadeus Hotel Offers API Error Response:', await response.text());
@@ -161,7 +223,7 @@ export const searchHotels = async (
               hotelId: hotel.hotelId, name: hotel.name,
               rating: hotel.rating ? parseInt(hotel.rating, 10) : 0,
               address: address, price: parseFloat(price.total),
-              bookingUrl: `https://www.google.com/search?q=${encodeURIComponent(hotel.name)}+${encodeURIComponent(address.cityName)}`,
+              bookingUrl: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(hotel.name + ', ' + address.cityName)}&checkin=${checkInDate}&checkout=${checkOutDate}&group_adults=${adults}&sb=1`,
             };
         });
         
@@ -171,5 +233,40 @@ export const searchHotels = async (
     } catch (error) {
         console.error(`Error in searchHotels:`, error);
         return [];
+    }
+};
+
+export const reverseGeocode = async (latitude: number, longitude: number): Promise<string | null> => {
+    console.log(`Reverse geocoding for lat: ${latitude}, lon: ${longitude}`);
+    try {
+        const params = new URLSearchParams({
+            latitude: latitude.toString(),
+            longitude: longitude.toString(),
+            radius: '100', // Search within a 100KM radius for the nearest city/airport
+        });
+        const targetUrl = `${AMADEUS_PROXY_URL}/v1/reference-data/locations/airports?${params.toString()}`;
+        const response = await fetchWithDedupe(targetUrl);
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Amadeus Reverse Geocode API Error Response:', errorText);
+            // If 404, it might mean no location found in radius, return null gracefully.
+            if (response.status === 404) return null;
+            throw new Error(`Failed to reverse geocode with status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!data.data || data.data.length === 0) {
+            console.log('No locations found for the given coordinates.');
+            return null;
+        }
+
+        const cityName = data.data[0]?.address?.cityName;
+        console.log(`Found city: ${cityName}`);
+        return cityName || null;
+
+    } catch (error) {
+        console.error('Error in reverseGeocode:', error);
+        return null;
     }
 };
