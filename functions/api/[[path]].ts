@@ -31,6 +31,13 @@ async function hashString(str: string): Promise<string> {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// Helper to sort URL search params for consistent cache keys
+function getSortedQueryString(searchParams: URLSearchParams): string {
+  const params = Array.from(searchParams.entries());
+  params.sort((a, b) => a[0].localeCompare(b[0]));
+  return new URLSearchParams(params).toString();
+}
+
 async function getAmadeusToken(apiKey: string, apiSecret: string): Promise<string> {
   if (amadeusTokenCache.value && amadeusTokenCache.expires > Date.now()) {
     return amadeusTokenCache.value;
@@ -193,9 +200,6 @@ export const onRequest: CFPagesFunction = async (context) => {
   const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY;
   const useCache = !!(env.SUPABASE_URL && supabaseKey);
   
-  // Debug status for X-Cache-Status header
-  let cacheDebugStatus = useCache ? 'MISS' : 'DISABLED';
-
   if (!env.SUPABASE_URL) {
       console.warn("Caching disabled: SUPABASE_URL missing in environment.");
   }
@@ -284,28 +288,28 @@ export const onRequest: CFPagesFunction = async (context) => {
   // Logic to determine cache key based on API path and params/body
   // Reference Data (e.g. City Codes)
   if (isGet && actualPath.includes('reference-data/locations')) {
-      cacheKey = `amadeus:ref:${url.searchParams.toString()}`;
+      cacheKey = `v2:amadeus:ref:${getSortedQueryString(url.searchParams)}`;
       ttl = 60 * 60 * 24 * 7; // 7 days
   } 
   // Flight Search (Amadeus uses GET, Duffel uses POST)
   else if (actualPath.includes('flight-offers') || actualPath.includes('offer_requests')) {
       if (isGet) {
-           cacheKey = `amadeus:flights:${url.searchParams.toString()}`;
+           cacheKey = `v2:amadeus:flights:${getSortedQueryString(url.searchParams)}`;
            ttl = 60 * 30; // 30 mins
       } else if (isPost && requestBody) {
            const hash = await hashString(requestBody);
-           cacheKey = `${apiProvider}:flights:${hash}`;
+           cacheKey = `v2:${apiProvider}:flights:${hash}`;
            ttl = 60 * 30; // 30 mins
       }
   } 
   // Hotel Search (Amadeus GET, Duffel POST)
   else if (actualPath.includes('hotel-offers') || actualPath.includes('hotels/search') || actualPath.includes('stays/search')) {
       if (isGet) {
-          cacheKey = `amadeus:hotels:${url.searchParams.toString()}`;
+          cacheKey = `v2:amadeus:hotels:${getSortedQueryString(url.searchParams)}`;
           ttl = 60 * 60; // 1 hour
       } else if (isPost && requestBody) {
           const hash = await hashString(requestBody);
-          cacheKey = `${apiProvider}:hotels:${hash}`;
+          cacheKey = `v2:${apiProvider}:hotels:${hash}`;
           ttl = 60 * 60; // 1 hour
       }
   }

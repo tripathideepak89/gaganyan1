@@ -42,6 +42,13 @@ To ensure the sign-up confirmation links redirect correctly to your deployed app
 
 > **Note:** If the redirect URL sent by the app (e.g., `https://travelbilli.com`) is not in this allowed list, Supabase will ignore it and fall back to the default Site URL (often `localhost:3000`), causing the email link to point to localhost.
 
+## 🗄️ Database Caching Setup
+
+To save on API costs and improve performance, TravelBilli caches flight and hotel search results in Supabase.
+
+1.  **Create the Table:** Run the SQL commands found in `supabase_setup.sql` in your Supabase SQL Editor.
+2.  **Configure Environment:** Ensure the **`SUPABASE_SERVICE_ROLE_KEY`** is set in your deployment environment variables. The worker uses this key to bypass Row Level Security (RLS) when writing to the cache.
+
 ## 🛠️ Setup & Configuration
 
 This project is designed to be deployed on a serverless platform like Cloudflare Pages, which natively supports integrating serverless functions (Workers) with a static frontend.
@@ -54,6 +61,9 @@ To run this application, you will need to configure the following environment va
 - **`AMADEUS_API_KEY`**: Your client ID from the Amadeus for Developers portal.
 - **`AMADEUS_API_SECRET`**: Your client secret from the Amadeus for Developers portal.
 - **`DUFFEL_API_KEY`**: Your access token from the Duffel dashboard.
+- **`SUPABASE_URL`**: Your Supabase project URL.
+- **`SUPABASE_ANON_KEY`**: Your Supabase anonymous public key (for client-side auth).
+- **`SUPABASE_SERVICE_ROLE_KEY`**: Your Supabase service role key (for backend caching).
 - **`VITE_SITE_URL`** (Optional): Force the authentication redirect URL to a specific domain (e.g., `https://travelbilli.com`).
 
 The Cloudflare Worker located in `/functions/api/[[path]].ts` is pre-configured to use these variables to securely proxy requests to the respective third-party APIs.
