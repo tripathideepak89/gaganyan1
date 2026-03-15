@@ -48,7 +48,7 @@ const AirportAutocomplete: React.FC<AirportAutocompleteProps> = ({ label, value,
           view: 'LIGHT',
           'page[limit]': '10',
         });
-        const response = await fetch(`/api/amadeus/reference-data/locations?${params}`);
+        const response = await fetch(`/api/amadeus/v1/reference-data/locations?${params}`);
         if (!response.ok) {
           setSuggestions([]);
           return;
