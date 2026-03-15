@@ -48,10 +48,19 @@ const AirportAutocomplete: React.FC<AirportAutocompleteProps> = ({ label, value,
           setSuggestions([]);
           return;
         }
-        const { data, error } = await supabase
+        // Step 1: exact IATA code match (always shown first)
+        const { data: exactData } = await supabase
           .from('airports')
           .select('*')
-          .or(`airport_name.ilike.%${query}%,city.ilike.%${query}%,iata_code.ilike.%${query}%,country.ilike.%${query}%`)
+          .ilike('iata_code', query)
+          .order('priority', { ascending: true })
+          .limit(3);
+
+        // Step 2: broader text search
+        const { data: textData, error } = await supabase
+          .from('airports')
+          .select('*')
+          .or(`airport_name.ilike.%${query}%,city.ilike.%${query}%,iata_code.ilike.%${query}%`)
           .not('iata_code', 'is', null)
           .order('priority', { ascending: true })
           .limit(10);
@@ -60,7 +69,13 @@ const AirportAutocomplete: React.FC<AirportAutocompleteProps> = ({ label, value,
           console.error('Supabase search error:', error);
           setSuggestions([]);
         } else {
-          setSuggestions(data || []);
+          // Merge: exact IATA matches first, then text results (deduped by id)
+          const exactIds = new Set((exactData || []).map((a: any) => a.id));
+          const combined = [
+            ...(exactData || []),
+            ...(textData || []).filter((a: any) => !exactIds.has(a.id)),
+          ].slice(0, 10);
+          setSuggestions(combined);
         }
       } catch (err) {
         console.error('Error searching airports:', err);
