@@ -32,3 +32,27 @@ CREATE POLICY "Allow backend updates" ON api_cache
 -- SELECT cron.schedule('delete-expired-cache', '0 * * * *', $$
 --   DELETE FROM api_cache WHERE expires_at < NOW();
 -- $$);
+
+-- -------------------------------------------------------
+-- TravelBilli Airports Table
+-- Run this section, then import airports.csv from OurAirports:
+--   https://davidmegginson.github.io/ourairports-data/airports.csv
+-- In Supabase: Table Editor -> airports -> Import data (CSV)
+-- Only rows where iata_code is not empty will matter.
+-- -------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS airports (
+  id SERIAL PRIMARY KEY,
+  iata_code TEXT,
+  airport_name TEXT,
+  city TEXT,
+  country TEXT
+);
+
+CREATE INDEX IF NOT EXISTS airports_iata_idx ON airports (iata_code);
+CREATE INDEX IF NOT EXISTS airports_city_idx ON airports (city);
+
+ALTER TABLE airports ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow public reads" ON airports
+  FOR SELECT USING (true);

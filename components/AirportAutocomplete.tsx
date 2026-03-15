@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { getSupabase } from '../services/supabaseClient';
 import { Airport } from '../types';
 
 interface AirportAutocompleteProps {
@@ -42,26 +43,24 @@ const AirportAutocomplete: React.FC<AirportAutocompleteProps> = ({ label, value,
 
       setIsLoading(true);
       try {
-        const params = new URLSearchParams({
-          keyword: query,
-          subType: 'AIRPORT,CITY',
-          view: 'LIGHT',
-          'page[limit]': '10',
-        });
-        const response = await fetch(`/api/amadeus/v1/reference-data/locations?${params}`);
-        if (!response.ok) {
+        const supabase = await getSupabase();
+        if (!supabase) {
           setSuggestions([]);
           return;
         }
-        const data = await response.json();
-        const airports: Airport[] = (data.data || []).map((item: any, index: number) => ({
-          id: index,
-          iata_code: item.iataCode || '',
-          airport_name: item.name || '',
-          city: item.address?.cityName || '',
-          country: item.address?.countryName || '',
-        }));
-        setSuggestions(airports);
+        const { data, error } = await supabase
+          .from('airports')
+          .select('*')
+          .or(`airport_name.ilike.%${query}%,city.ilike.%${query}%,iata_code.ilike.%${query}%,country.ilike.%${query}%`)
+          .not('iata_code', 'is', null)
+          .limit(10);
+
+        if (error) {
+          console.error('Supabase search error:', error);
+          setSuggestions([]);
+        } else {
+          setSuggestions(data || []);
+        }
       } catch (err) {
         console.error('Error searching airports:', err);
         setSuggestions([]);
