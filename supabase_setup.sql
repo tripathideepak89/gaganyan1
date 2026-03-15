@@ -46,11 +46,13 @@ CREATE TABLE IF NOT EXISTS airports (
   iata_code TEXT,
   airport_name TEXT,
   city TEXT,
-  country TEXT
+  country TEXT,
+  priority INTEGER DEFAULT 4  -- 1=large, 2=medium, 3=small, 4=other
 );
 
 CREATE INDEX IF NOT EXISTS airports_iata_idx ON airports (iata_code);
 CREATE INDEX IF NOT EXISTS airports_city_idx ON airports (city);
+CREATE INDEX IF NOT EXISTS airports_priority_idx ON airports (priority);
 
 ALTER TABLE airports ENABLE ROW LEVEL SECURITY;
 

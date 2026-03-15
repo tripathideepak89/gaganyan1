@@ -53,6 +53,7 @@ const AirportAutocomplete: React.FC<AirportAutocompleteProps> = ({ label, value,
           .select('*')
           .or(`airport_name.ilike.%${query}%,city.ilike.%${query}%,iata_code.ilike.%${query}%,country.ilike.%${query}%`)
           .not('iata_code', 'is', null)
+          .order('priority', { ascending: true })
           .limit(10);
 
         if (error) {
