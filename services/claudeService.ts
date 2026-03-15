@@ -97,32 +97,17 @@ export interface ChatSession {
 export const initializeChat = async (
   userLocation: { city: string } | null
 ): Promise<ChatSession | null> => {
-  let apiKey: string | undefined;
+  // Route all Claude API calls through the Cloudflare Worker so the real
+  // API key is never exposed to the browser.
+  const baseURL = typeof window !== 'undefined'
+    ? `${window.location.origin}/api/claude`
+    : '/api/claude';
 
-  try {
-    const response = await fetch('/api/get-key');
-    if (response.ok) {
-      const data = await response.json();
-      apiKey = data.apiKey;
-    } else {
-      console.error(
-        `Failed to fetch API key. Status: ${response.status} ${response.statusText}`
-      );
-      const errorText = await response.text();
-      console.error('Server response:', errorText);
-      return null;
-    }
-  } catch (e) {
-    console.error('Network or parsing error when fetching API key:', e);
-    return null;
-  }
-
-  if (!apiKey) {
-    console.error('API key was not provided by the server.');
-    return null;
-  }
-
-  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+  const client = new Anthropic({
+    apiKey: 'proxy', // placeholder — the Worker replaces this with the real key
+    baseURL,
+    dangerouslyAllowBrowser: true,
+  });
 
   let systemPrompt = `You are a friendly and helpful flight and hotel booking assistant. Your goal is to make finding flights and hotels easy and conversational.
 

@@ -367,6 +367,15 @@ export const onRequest: CFPagesFunction = async (context) => {
       targetUrl = destinationUrl.toString();
       (apiRequestOptions.headers as Headers).set('Authorization', `Bearer ${DUFFEL_API_KEY}`);
       (apiRequestOptions.headers as Headers).set('Duffel-Version', 'v2');
+    } else if (apiProvider === 'claude') {
+      const { API_KEY } = env;
+      if (!API_KEY) return new Response('Anthropic API key not configured.', { status: 500 });
+      const destinationUrl = new URL(actualPath, 'https://api.anthropic.com');
+      destinationUrl.search = url.search;
+      targetUrl = destinationUrl.toString();
+      (apiRequestOptions.headers as Headers).set('x-api-key', API_KEY);
+      (apiRequestOptions.headers as Headers).set('anthropic-version', '2023-06-01');
+      (apiRequestOptions.headers as Headers).delete('authorization');
     } else {
       return new Response('Invalid API provider.', { status: 400 });
     }
