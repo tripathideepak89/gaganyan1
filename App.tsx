@@ -1,8 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
-import { GenerateContentResponse, Chat } from '@google/genai';
+import React, { useState, useEffect, useRef } from 'react';
+import Anthropic from '@anthropic-ai/sdk';
 import { ChatMessage, MessageRole, FlightOffer, Location, HotelOffer } from './types';
-import { initializeChat } from './services/geminiService';
+import { initializeChat, claudeTools, ChatSession } from './services/claudeService';
 import { searchFlights as searchFlightsAmadeus, searchCityCode, searchHotels as searchHotelsAmadeus, reverseGeocode } from './services/amadeusService';
 import { searchFlights as searchFlightsDuffel, searchHotels as searchHotelsDuffel } from './services/duffelService';
 import { getSupabase, signOut } from './services/supabaseClient';
@@ -96,7 +96,8 @@ const App: React.FC = () => {
   type AppStatus = 'initializing' | 'ready' | 'error';
 
   const [appStatus, setAppStatus] = useState<AppStatus>('initializing');
-  const [chatInstance, setChatInstance] = useState<Chat | null>(null);
+  const [chatSession, setChatSession] = useState<ChatSession | null>(null);
+  const claudeMessages = useRef<Anthropic.MessageParam[]>([]);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('flights');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -141,9 +142,10 @@ const App: React.FC = () => {
       }
 
       const initializeAndLoadChat = async (location: { city: string } | null) => {
-        const chat = await initializeChat(location);
-        if (chat) {
-          setChatInstance(chat);
+        const session = await initializeChat(location);
+        if (session) {
+          claudeMessages.current = [];
+          setChatSession(session);
           setAppStatus('ready');
           setShowSuggestions(true);
           setMessages([
@@ -247,7 +249,9 @@ const App: React.FC = () => {
   }
 
   const handleSendMessage = async (userInput: string) => {
-    if (!chatInstance) return;
+    if (!chatSession) return;
+
+    const { client, systemPrompt } = chatSession;
 
     logSearch(userInput);
     setShowSuggestions(false);
@@ -259,190 +263,217 @@ const App: React.FC = () => {
       content: userInput,
     };
     setMessages((prevMessages) => [...prevMessages.filter(m => m.id !== 'init'), newUserMessage]);
+    claudeMessages.current.push({ role: 'user', content: userInput });
 
     try {
-        let response: GenerateContentResponse = await chatInstance.sendMessage({ message: userInput });
-        
-        let executionCount = 0;
-        const MAX_EXECUTIONS = 5;
+      let executionCount = 0;
+      const MAX_EXECUTIONS = 5;
 
-        while(response.functionCalls && response.functionCalls.length > 0) {
-            if (executionCount >= MAX_EXECUTIONS) {
-                throw new Error("I seem to be stuck in a loop. Please try rephrasing your request.");
-            }
-            executionCount++;
+      while (executionCount < MAX_EXECUTIONS) {
+        const response = await client.messages.create({
+          model: 'claude-opus-4-6',
+          max_tokens: 4096,
+          system: systemPrompt,
+          tools: claudeTools,
+          messages: claudeMessages.current,
+        });
 
-            const functionCalls = response.functionCalls;
-            const functionResponseParts = [];
+        claudeMessages.current.push({ role: 'assistant', content: response.content });
 
-            for (const fc of functionCalls) {
-                if (fc.name === 'searchFlights') {
-                    const { origin, destination, departureDate, adults, children, returnDate, childAges } = fc.args;
-                    const numAdults = typeof adults === 'number' && adults > 0 ? adults : 1;
-                    
-                    // Improve inference of children count.
-                    // Sometimes the model identifies childAges but misses the children count.
-                    let numChildren = typeof children === 'number' && children >= 0 ? children : 0;
-                    if (numChildren === 0 && Array.isArray(childAges) && childAges.length > 0) {
-                        numChildren = childAges.length;
-                    }
-
-                    const validChildAges = Array.isArray(childAges) ? childAges : [];
-
-                    const systemMessage = `Searching flights from ${origin} to ${destination}...`;
-                    setMessages((prev) => [...prev, { id: Date.now().toString(), role: MessageRole.SYSTEM, content: systemMessage }]);
-                    
-                    let allFlightOffers: FlightOffer[] = [];
-                    
-                    try {
-                        const [amadeusResults, duffelResults] = await Promise.all([
-                            searchFlightsAmadeus(origin as string, destination as string, departureDate as string, numAdults, numChildren, returnDate as string | undefined)
-                                .catch(err => {
-                                    console.error("Amadeus flight search failed", err);
-                                    return [];
-                                }),
-                            searchFlightsDuffel(origin as string, destination as string, departureDate as string, numAdults, numChildren, returnDate as string | undefined, validChildAges)
-                                .catch(err => {
-                                    console.error("Duffel flight search failed", err);
-                                    return [];
-                                })
-                        ]);
-                        allFlightOffers = [...amadeusResults, ...duffelResults];
-                    } catch (error) {
-                        console.error("Flight search failed", error);
-                    }
-
-                    const uniqueFlightOffers = Array.from(new Map(allFlightOffers.map(offer => {
-                        const firstSegment = offer.itineraries[0]?.segments[0];
-                        if (!firstSegment) return [offer.id, offer];
-                        const key = `${firstSegment.airline}-${firstSegment.flightNumber}-${firstSegment.origin.time}-${offer.price}`;
-                        return [key, offer];
-                    })).values());
-
-                    const flightOffersWithScores = calculateBestScores(uniqueFlightOffers);
-                    flightOffersWithScores.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-                    
-                    const summaryResult = {
-                        count: uniqueFlightOffers.length,
-                        message: uniqueFlightOffers.length > 0 ? `Found ${uniqueFlightOffers.length} flight offers.` : "No flight offers found."
-                    };
-                    functionResponseParts.push({ functionResponse: { name: fc.name, response: { result: summaryResult }}});
-
-                    if (uniqueFlightOffers.length > 0) {
-                        setMessages((prev) => [...prev, { id: Date.now().toString() + '-flights', role: MessageRole.MODEL, content: flightOffersWithScores }]);
-                    }
-                } else if (fc.name === 'searchHotels') {
-                    const { cityCode, checkInDate, checkOutDate, adults } = fc.args;
-                    const numAdults = typeof adults === 'number' && adults > 0 ? adults : 2;
-                    
-                    const systemMessage = `Searching for hotels in ${cityCode}...`;
-                    setMessages((prev) => [...prev, { id: Date.now().toString(), role: MessageRole.SYSTEM, content: systemMessage }]);
-
-                    // Fetch location details to verify city and get coordinates for Duffel
-                    const locations = await searchCityCode(cityCode as string);
-                    const location = locations.find(l => l.iataCode === cityCode) || locations[0];
-
-                    let allHotelOffers: HotelOffer[] = [];
-                    
-                    const promises: Promise<HotelOffer[]>[] = [];
-                    
-                    // Amadeus Search
-                    promises.push(
-                        searchHotelsAmadeus(cityCode as string, checkInDate as string, checkOutDate as string, numAdults)
-                        .catch(error => {
-                            console.error("Amadeus hotel search failed", error);
-                            return [];
-                        })
-                    );
-
-                    // Duffel Search (requires lat/long)
-                    if (location && location.geoCode) {
-                         promises.push(
-                            searchHotelsDuffel(location.geoCode.latitude, location.geoCode.longitude, checkInDate as string, checkOutDate as string, numAdults)
-                            .catch(error => {
-                                console.error("Duffel hotel search failed", error);
-                                return [];
-                            })
-                         );
-                    }
-
-                    try {
-                         const results = await Promise.all(promises);
-                         allHotelOffers = results.flat();
-                    } catch (error) {
-                        console.error("Hotel search failed", error);
-                    }
-
-                    // Simple deduplication based on hotel name and city
-                    const uniqueHotelOffers = Array.from(new Map(allHotelOffers.map(offer => {
-                        const key = `${offer.name.toLowerCase().trim()}-${offer.address.cityName.toLowerCase().trim()}`;
-                        return [key, offer];
-                    })).values());
-                    
-                    const hotelOffersWithScores = calculateHotelScores(uniqueHotelOffers);
-                    hotelOffersWithScores.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-                    
-                    let messageForModel = uniqueHotelOffers.length > 0 
-                        ? `Found ${uniqueHotelOffers.length} hotels.` 
-                        : "No hotels found.";
-
-                    if (uniqueHotelOffers.length === 0 && checkInDate) {
-                        const today = new Date();
-                        const elevenMonthsFromNow = new Date(today.getFullYear(), today.getMonth() + 11, today.getDate());
-                        const checkIn = new Date(checkInDate as string);
-
-                        if (checkIn > elevenMonthsFromNow) {
-                            messageForModel = "No hotels were found. This might be because the check-in date is more than 11 months in the future, and availability is often limited that far in advance. Please try searching for dates closer to today.";
-                        }
-                    }
-                    
-                    const summaryResult = {
-                        count: uniqueHotelOffers.length,
-                        message: messageForModel,
-                    };
-                    functionResponseParts.push({ functionResponse: { name: fc.name, response: { result: summaryResult }}});
-                    
-                    if (uniqueHotelOffers.length > 0) {
-                        setMessages((prev) => [...prev, { id: Date.now().toString() + '-hotels', role: MessageRole.MODEL, content: hotelOffersWithScores }]);
-                    }
-                } else if (fc.name === 'searchCityCode') {
-                    const { keyword } = fc.args;
-                    setMessages((prev) => [...prev, { id: Date.now().toString(), role: MessageRole.SYSTEM, content: `Looking up city code for "${keyword}"...` }]);
-                    const locations: Location[] = await searchCityCode(keyword as string);
-                    functionResponseParts.push({ functionResponse: { name: fc.name, response: { result: locations }}});
-                     if (locations.length > 0) {
-                        setMessages((prev) => [...prev, { id: Date.now().toString() + '-locations', role: MessageRole.MODEL, content: locations }]);
-                    }
-                }
-            }
-
-            if (functionResponseParts.length > 0) {
-                response = await chatInstance.sendMessage({ message: functionResponseParts as any});
-            } else {
-                break; 
-            }
+        if (response.stop_reason === 'end_turn') {
+          const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
+          if (textBlock?.text?.trim()) {
+            setMessages((prev) => [...prev, {
+              id: Date.now().toString() + '-model',
+              role: MessageRole.MODEL,
+              content: textBlock.text,
+            }]);
+          }
+          break;
         }
-        
-        const modelResponseText = response.text?.trim();
-        if (modelResponseText) {
-            const newModelMessage: ChatMessage = { id: Date.now().toString() + '-model', role: MessageRole.MODEL, content: modelResponseText };
-            setMessages((prevMessages) => [...prevMessages, newModelMessage]);
+
+        if (response.stop_reason !== 'tool_use') break;
+
+        executionCount++;
+        const toolUseBlocks = response.content.filter(
+          (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
+        );
+        const toolResults: Anthropic.ToolResultBlockParam[] = [];
+
+        for (const toolUse of toolUseBlocks) {
+          const args = toolUse.input as Record<string, any>;
+
+          if (toolUse.name === 'searchFlights') {
+            const { origin, destination, departureDate, adults, children, returnDate, childAges } = args;
+            const numAdults = typeof adults === 'number' && adults > 0 ? adults : 1;
+            let numChildren = typeof children === 'number' && children >= 0 ? children : 0;
+            if (numChildren === 0 && Array.isArray(childAges) && childAges.length > 0) {
+              numChildren = childAges.length;
+            }
+            const validChildAges = Array.isArray(childAges) ? childAges : [];
+
+            setMessages((prev) => [...prev, {
+              id: Date.now().toString(),
+              role: MessageRole.SYSTEM,
+              content: `Searching flights from ${origin} to ${destination}...`,
+            }]);
+
+            let allFlightOffers: FlightOffer[] = [];
+            try {
+              const [amadeusResults, duffelResults] = await Promise.all([
+                searchFlightsAmadeus(origin, destination, departureDate, numAdults, numChildren, returnDate)
+                  .catch(err => { console.error('Amadeus flight search failed', err); return []; }),
+                searchFlightsDuffel(origin, destination, departureDate, numAdults, numChildren, returnDate, validChildAges)
+                  .catch(err => { console.error('Duffel flight search failed', err); return []; }),
+              ]);
+              allFlightOffers = [...amadeusResults, ...duffelResults];
+            } catch (error) {
+              console.error('Flight search failed', error);
+            }
+
+            const uniqueFlightOffers = Array.from(new Map(allFlightOffers.map(offer => {
+              const firstSegment = offer.itineraries[0]?.segments[0];
+              if (!firstSegment) return [offer.id, offer];
+              const key = `${firstSegment.airline}-${firstSegment.flightNumber}-${firstSegment.origin.time}-${offer.price}`;
+              return [key, offer];
+            })).values());
+
+            const flightOffersWithScores = calculateBestScores(uniqueFlightOffers);
+            flightOffersWithScores.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+
+            if (uniqueFlightOffers.length > 0) {
+              setMessages((prev) => [...prev, {
+                id: Date.now().toString() + '-flights',
+                role: MessageRole.MODEL,
+                content: flightOffersWithScores,
+              }]);
+            }
+
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolUse.id,
+              content: JSON.stringify({
+                count: uniqueFlightOffers.length,
+                message: uniqueFlightOffers.length > 0
+                  ? `Found ${uniqueFlightOffers.length} flight offers.`
+                  : 'No flight offers found.',
+              }),
+            });
+
+          } else if (toolUse.name === 'searchHotels') {
+            const { cityCode, checkInDate, checkOutDate, adults } = args;
+            const numAdults = typeof adults === 'number' && adults > 0 ? adults : 2;
+
+            setMessages((prev) => [...prev, {
+              id: Date.now().toString(),
+              role: MessageRole.SYSTEM,
+              content: `Searching for hotels in ${cityCode}...`,
+            }]);
+
+            const locations = await searchCityCode(cityCode);
+            const location = locations.find((l: Location) => l.iataCode === cityCode) || locations[0];
+
+            let allHotelOffers: HotelOffer[] = [];
+            const promises: Promise<HotelOffer[]>[] = [
+              searchHotelsAmadeus(cityCode, checkInDate, checkOutDate, numAdults)
+                .catch(error => { console.error('Amadeus hotel search failed', error); return []; }),
+            ];
+            if (location?.geoCode) {
+              promises.push(
+                searchHotelsDuffel(location.geoCode.latitude, location.geoCode.longitude, checkInDate, checkOutDate, numAdults)
+                  .catch(error => { console.error('Duffel hotel search failed', error); return []; })
+              );
+            }
+            try {
+              const results = await Promise.all(promises);
+              allHotelOffers = results.flat();
+            } catch (error) {
+              console.error('Hotel search failed', error);
+            }
+
+            const uniqueHotelOffers = Array.from(new Map(allHotelOffers.map(offer => {
+              const key = `${offer.name.toLowerCase().trim()}-${offer.address.cityName.toLowerCase().trim()}`;
+              return [key, offer];
+            })).values());
+
+            const hotelOffersWithScores = calculateHotelScores(uniqueHotelOffers);
+            hotelOffersWithScores.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+
+            let messageForModel = uniqueHotelOffers.length > 0
+              ? `Found ${uniqueHotelOffers.length} hotels.`
+              : 'No hotels found.';
+
+            if (uniqueHotelOffers.length === 0 && checkInDate) {
+              const today = new Date();
+              const elevenMonthsFromNow = new Date(today.getFullYear(), today.getMonth() + 11, today.getDate());
+              const checkIn = new Date(checkInDate);
+              if (checkIn > elevenMonthsFromNow) {
+                messageForModel = 'No hotels were found. This might be because the check-in date is more than 11 months in the future, and availability is often limited that far in advance. Please try searching for dates closer to today.';
+              }
+            }
+
+            if (uniqueHotelOffers.length > 0) {
+              setMessages((prev) => [...prev, {
+                id: Date.now().toString() + '-hotels',
+                role: MessageRole.MODEL,
+                content: hotelOffersWithScores,
+              }]);
+            }
+
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolUse.id,
+              content: JSON.stringify({
+                count: uniqueHotelOffers.length,
+                message: messageForModel,
+              }),
+            });
+
+          } else if (toolUse.name === 'searchCityCode') {
+            const { keyword } = args;
+            setMessages((prev) => [...prev, {
+              id: Date.now().toString(),
+              role: MessageRole.SYSTEM,
+              content: `Looking up city code for "${keyword}"...`,
+            }]);
+            const locations: Location[] = await searchCityCode(keyword);
+            if (locations.length > 0) {
+              setMessages((prev) => [...prev, {
+                id: Date.now().toString() + '-locations',
+                role: MessageRole.MODEL,
+                content: locations,
+              }]);
+            }
+            toolResults.push({
+              type: 'tool_result',
+              tool_use_id: toolUse.id,
+              content: JSON.stringify({ result: locations }),
+            });
+          }
         }
+
+        if (toolResults.length > 0) {
+          claudeMessages.current.push({ role: 'user', content: toolResults });
+        } else {
+          break;
+        }
+      }
 
     } catch (error) {
       console.error('Error sending message:', error);
       let errorMessageText = 'Sorry, something went wrong. Please try again later.';
-  
-      const messageToCheck = error instanceof Error ? error.message : JSON.stringify(error);
 
-      if (messageToCheck.includes('API key expired') || messageToCheck.includes('API_KEY_INVALID')) {
+      if (error instanceof Anthropic.AuthenticationError) {
         errorMessageText = "It looks like there's a configuration issue with the AI service. The API key may be expired or invalid. Please contact the administrator to resolve this.";
       } else if (error instanceof Error) {
         errorMessageText = `An unexpected error occurred: ${error.message}`;
       }
-      
-      const errorMessage: ChatMessage = { id: Date.now().toString() + '-error', role: MessageRole.MODEL, content: errorMessageText };
-      setMessages((prevMessages) => [...prevMessages, errorMessage]);
+
+      setMessages((prev) => [...prev, {
+        id: Date.now().toString() + '-error',
+        role: MessageRole.MODEL,
+        content: errorMessageText,
+      }]);
     } finally {
       setIsLoading(false);
     }

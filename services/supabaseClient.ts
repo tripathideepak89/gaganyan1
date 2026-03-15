@@ -1,10 +1,6 @@
 
 import { createClient, SupabaseClient, User } from '@supabase/supabase-js';
 
-// Using the project URL provided
-const supabaseUrl = 'https://izzopcectovmtopdqrgu.supabase.co';
-let supabaseInstance: SupabaseClient | null = null;
-
 // Helper to safely access environment variables in different environments
 const getEnvVar = (key: string): string => {
   if (typeof process !== 'undefined' && process.env && process.env[key]) {
@@ -19,22 +15,28 @@ const getEnvVar = (key: string): string => {
   return '';
 };
 
+let supabaseInstance: SupabaseClient | null = null;
+
 export const getSupabase = async (): Promise<SupabaseClient | null> => {
     if (supabaseInstance) return supabaseInstance;
 
+    // Resolve the Supabase project URL from env vars
+    let supabaseUrl = getEnvVar('SUPABASE_URL') || getEnvVar('VITE_SUPABASE_URL');
+
     // 1. Try to get the key from local environment variables first
-    let key = 
-        getEnvVar('SUPABASE_ANON_KEY') || 
-        getEnvVar('VITE_SUPABASE_ANON_KEY') || 
+    let key =
+        getEnvVar('SUPABASE_ANON_KEY') ||
+        getEnvVar('VITE_SUPABASE_ANON_KEY') ||
         getEnvVar('NEXT_PUBLIC_SUPABASE_ANON_KEY');
 
-    // 2. If not found locally, try to fetch it from the backend (Cloudflare Worker)
-    if (!key) {
+    // 2. If not found locally, try to fetch both URL and key from the backend (Cloudflare Worker)
+    if (!key || !supabaseUrl) {
         try {
             const response = await fetch('/api/get-supabase-config');
             if (response.ok) {
                 const data = await response.json();
-                key = data.supabaseKey;
+                if (!key) key = data.supabaseKey;
+                if (!supabaseUrl) supabaseUrl = data.supabaseUrl;
             } else {
                 console.warn('Failed to fetch Supabase config from backend:', response.statusText);
             }
@@ -43,12 +45,13 @@ export const getSupabase = async (): Promise<SupabaseClient | null> => {
         }
     }
 
-    if (key) {
+    if (key && supabaseUrl) {
         supabaseInstance = createClient(supabaseUrl, key);
         return supabaseInstance;
     }
 
-    console.error('Supabase Anon Key is missing. Auth and DB features will not work.');
+    if (!supabaseUrl) console.error('SUPABASE_URL is missing. Auth and DB features will not work.');
+    if (!key) console.error('Supabase Anon Key is missing. Auth and DB features will not work.');
     return null;
 };
 

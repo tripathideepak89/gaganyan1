@@ -1,121 +1,130 @@
-import { GoogleGenAI, Type, FunctionDeclaration, Chat } from '@google/genai';
 
-const searchFlightsFunctionDeclaration: FunctionDeclaration = {
-  name: 'searchFlights',
-  description:
-    'Searches for available flights based on origin, destination, and departure date.',
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      origin: {
-        type: Type.STRING,
-        description:
-          'The departure airport code, e.g., "SFO", "LAX".',
+import Anthropic from '@anthropic-ai/sdk';
+
+export const claudeTools: Anthropic.Tool[] = [
+  {
+    name: 'searchFlights',
+    description:
+      'Searches for available flights based on origin, destination, and departure date.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        origin: {
+          type: 'string',
+          description: 'The departure airport code, e.g., "SFO", "LAX".',
+        },
+        destination: {
+          type: 'string',
+          description: 'The arrival airport code, e.g., "JFK", "ORD".',
+        },
+        departureDate: {
+          type: 'string',
+          description: 'The date of departure in YYYY-MM-DD format.',
+        },
+        returnDate: {
+          type: 'string',
+          description:
+            'The return date for a round-trip flight in YYYY-MM-DD format. Omit for one-way flights.',
+        },
+        adults: {
+          type: 'number',
+          description: 'The number of adult passengers (age 12 and over).',
+        },
+        children: {
+          type: 'number',
+          description: 'The number of child passengers (age 2-11).',
+        },
+        childAges: {
+          type: 'array',
+          description:
+            'An array of ages for each child passenger. This is required if the number of children is greater than 0.',
+          items: { type: 'number' },
+        },
       },
-      destination: {
-        type: Type.STRING,
-        description:
-          'The arrival airport code, e.g., "JFK", "ORD".',
-      },
-      departureDate: {
-        type: Type.STRING,
-        description: 'The date of departure in YYYY-MM-DD format.',
-      },
-      returnDate: {
-        type: Type.STRING,
-        description: 'The return date for a round-trip flight in YYYY-MM-DD format. Omit for one-way flights.',
-      },
-      adults: {
-        type: Type.NUMBER,
-        description: 'The number of adult passengers (age 12 and over).',
-      },
-      children: {
-        type: Type.NUMBER,
-        description: 'The number of child passengers (age 2-11).',
-      },
-      childAges: {
-        type: Type.ARRAY,
-        description: 'An array of ages for each child passenger. This is required if the number of children is greater than 0.',
-        items: {
-            type: Type.NUMBER,
-        }
-      },
+      required: ['origin', 'destination', 'departureDate', 'adults'],
     },
-    required: ['origin', 'destination', 'departureDate', 'adults'],
   },
-};
-
-const searchCityCodeFunctionDeclaration: FunctionDeclaration = {
-  name: 'searchCityCode',
-  description:
-    'Searches for city and airport IATA codes based on a keyword, like a city name.',
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      keyword: {
-        type: Type.STRING,
-        description: 'The city or airport name to search for, e.g., "Munich", "London".',
+  {
+    name: 'searchCityCode',
+    description:
+      'Searches for city and airport IATA codes based on a keyword, like a city name.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        keyword: {
+          type: 'string',
+          description:
+            'The city or airport name to search for, e.g., "Munich", "London".',
+        },
       },
+      required: ['keyword'],
     },
-    required: ['keyword'],
   },
-};
-
-const searchHotelsFunctionDeclaration: FunctionDeclaration = {
-  name: 'searchHotels',
-  description: 'Searches for available hotels in a specific city for given dates. Note: This tool currently only supports searching for adult guests.',
-  parameters: {
-    type: Type.OBJECT,
-    properties: {
-      cityCode: {
-        type: Type.STRING,
-        description: 'The IATA code for the city, e.g., "PAR" for Paris.',
+  {
+    name: 'searchHotels',
+    description:
+      'Searches for available hotels in a specific city for given dates. Note: This tool currently only supports searching for adult guests.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        cityCode: {
+          type: 'string',
+          description: 'The IATA code for the city, e.g., "PAR" for Paris.',
+        },
+        checkInDate: {
+          type: 'string',
+          description: 'The check-in date in YYYY-MM-DD format.',
+        },
+        checkOutDate: {
+          type: 'string',
+          description: 'The check-out date in YYYY-MM-DD format.',
+        },
+        adults: {
+          type: 'number',
+          description: 'The number of adult guests.',
+        },
       },
-      checkInDate: {
-        type: Type.STRING,
-        description: 'The check-in date in YYYY-MM-DD format.',
-      },
-      checkOutDate: {
-        type: Type.STRING,
-        description: 'The check-out date in YYYY-MM-DD format.',
-      },
-      adults: {
-        type: Type.NUMBER,
-        description: 'The number of adult guests.',
-      },
+      required: ['cityCode', 'checkInDate', 'checkOutDate', 'adults'],
     },
-    required: ['cityCode', 'checkInDate', 'checkOutDate', 'adults'],
   },
-};
+];
 
+export interface ChatSession {
+  client: Anthropic;
+  systemPrompt: string;
+}
 
-export const initializeChat = async (userLocation: { city: string } | null): Promise<Chat | null> => {
+export const initializeChat = async (
+  userLocation: { city: string } | null
+): Promise<ChatSession | null> => {
   let apiKey: string | undefined;
 
   try {
     const response = await fetch('/api/get-key');
     if (response.ok) {
-        const data = await response.json();
-        apiKey = data.apiKey;
+      const data = await response.json();
+      apiKey = data.apiKey;
     } else {
-        console.error(`Failed to fetch API key. Status: ${response.status} ${response.statusText}`);
-        const errorText = await response.text();
-        console.error('Server response:', errorText);
-        return null;
+      console.error(
+        `Failed to fetch API key. Status: ${response.status} ${response.statusText}`
+      );
+      const errorText = await response.text();
+      console.error('Server response:', errorText);
+      return null;
     }
   } catch (e) {
     console.error('Network or parsing error when fetching API key:', e);
     return null;
   }
-  
+
   if (!apiKey) {
     console.error('API key was not provided by the server.');
     return null;
   }
-  
-  const ai = new GoogleGenAI({ apiKey });
 
-  let systemInstruction = `You are a friendly and helpful flight and hotel booking assistant. Your goal is to make finding flights and hotels easy and conversational.
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
+
+  let systemPrompt = `You are a friendly and helpful flight and hotel booking assistant. Your goal is to make finding flights and hotels easy and conversational.
 
 **Your Capabilities:**
 - You can search for one-way or round-trip flights.
@@ -142,19 +151,12 @@ export const initializeChat = async (userLocation: { city: string } | null): Pro
 - **DO NOT** retry a tool call with the exact same parameters if it fails. Ask the user for different information instead.
 - Today's date is ${new Date().toISOString().split('T')[0]}. Use this to calculate specific dates from relative terms like "tomorrow", "next week", and "next weekend". For "next weekend", assume the user means from the upcoming Saturday to the following Monday (a 2-night stay). For "this weekend", use the upcoming Saturday to Monday. If today is Saturday or Sunday, "this weekend" refers to the current one.`;
 
-  if (userLocation && userLocation.city) {
-    const userContextInstruction = `
+  if (userLocation?.city) {
+    systemPrompt += `
 
 **User Context:**
 - The user's current location is approximately **${userLocation.city}**. Use this as the default departure location for flight searches or the location for hotel searches if the user doesn't specify one. For example, if they ask "find flights to LAX tomorrow", assume they mean from **${userLocation.city}**. Do not mention their location back to them unless it's relevant to resolve an ambiguity.`;
-    systemInstruction += userContextInstruction;
   }
 
-  return ai.chats.create({
-      model: 'gemini-2.5-flash',
-      config: {
-        systemInstruction,
-        tools: [{ functionDeclarations: [searchFlightsFunctionDeclaration, searchCityCodeFunctionDeclaration, searchHotelsFunctionDeclaration] }],
-      },
-    });
+  return { client, systemPrompt };
 };

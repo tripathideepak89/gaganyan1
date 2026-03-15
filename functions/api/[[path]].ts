@@ -258,7 +258,7 @@ export const onRequest: CFPagesFunction = async (context) => {
   }
 
   if (apiProvider === 'get-supabase-config') {
-    return new Response(JSON.stringify({ supabaseKey: env.SUPABASE_ANON_KEY }), {
+    return new Response(JSON.stringify({ supabaseUrl: env.SUPABASE_URL, supabaseKey: env.SUPABASE_ANON_KEY }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
